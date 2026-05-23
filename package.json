@@ -1,0 +1,21 @@
+{
+    "name": "codesm-decoupled-bundle",
+    "version": "1.0.0",
+    "description": "Site settings, contact info, GTM config, and Astro build triggers for decoupled WordPress + Astro setups.",
+    "scripts": {
+        "start": "wp-scripts start",
+        "build": "wp-scripts build",
+        "lint:js": "wp-scripts lint-js",
+        "lint:css": "wp-scripts lint-style",
+        "plugin-zip": "wp-scripts plugin-zip"
+    },
+    "author": "Kavit Trivedi",
+    "license": "GPL-2.0-or-later",
+    "devDependencies": {
+        "@wordpress/scripts": "^30.15.0"
+    },
+    "dependencies": {
+        "@wordpress/api-fetch": "^7.0.0",
+        "@wordpress/icons": "^13.1.0"
+    }
+}

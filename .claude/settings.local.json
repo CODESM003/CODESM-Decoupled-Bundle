@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem -Path \"D:\\\\CODESM\\\\CODESM\\\\astro-wp-boilerplate\" -Recurse -File | Select-Object @{N='Path';E={$_.FullName.Substring\\('D:\\\\CODESM\\\\CODESM\\\\astro-wp-boilerplate'.Length\\)}} | Sort-Object Path)",
+      "PowerShell(Get-ChildItem -Path \"D:\\\\CODESM\\\\CODESM\\\\astro-wp-boilerplate\" -Recurse -File | ForEach-Object { $_.FullName.Replace\\(\"D:\\\\CODESM\\\\CODESM\\\\astro-wp-boilerplate\\\\\", \"\"\\) } | Sort-Object)",
+      "PowerShell(New-Item -ItemType Directory -Force \"d:\\\\CODESM\\\\CODESM\\\\Plugins\\\\codesm-decoupled-bundle\\\\github-actions-template\")",
+      "PowerShell(Get-ChildItem -Recurse \"d:\\\\CODESM\\\\CODESM\\\\Plugins\\\\codesm-decoupled-bundle\" | Where-Object { !$_.PSIsContainer } | Select-Object -ExpandProperty FullName | ForEach-Object { $_.Replace\\(\"d:\\\\CODESM\\\\CODESM\\\\Plugins\\\\codesm-decoupled-bundle\\\\\", \"\"\\) })",
+      "PowerShell(Get-ChildItem -Recurse \"d:\\\\CODESM\\\\CODESM\\\\Plugins\\\\codesm-decoupled-bundle\" | Where-Object { !$_.PSIsContainer } | Select-Object -ExpandProperty FullName | ForEach-Object { $_.Replace\\(\"d:\\\\CODESM\\\\CODESM\\\\Plugins\\\\codesm-decoupled-bundle\\\\\", \"\"\\) } | Sort-Object)",
+      "WebFetch(domain:github.com)",
+      "Bash(php -l codesm-decoupled-bundle.php)",
+      "Bash(php -l includes/classes/Settings.php)",
+      "Bash(php -l includes/classes/BuildManager.php)",
+      "Bash(php -l includes/classes/RestApi.php)",
+      "Bash(php -l includes/classes/Admin.php)",
+      "Bash(php -r \"echo PHP_VERSION . PHP_EOL;\")",
+      "Bash(node_modules\\\\.bin\\\\wp-scripts build *)"
+    ]
+  }
+}

@@ -1,0 +1,58 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Place this file in your Astro repository at:
+#   .github/workflows/deploy-to-sevalla.yml
+#
+# The CODESM Decoupled Bundle WP plugin triggers this workflow via the
+# GitHub Actions workflow_dispatch API whenever content changes in WordPress.
+#
+# This template pushes the source to Sevalla and lets Sevalla run
+# npm ci + npm run build on its own infrastructure. Configure your
+# build command and environment variables in the Sevalla dashboard under
+# your static site's Build settings.
+#
+# Required repository secrets:
+#   SEVALLA_DEPLOYMENT_TOKEN — Sevalla API token (Settings → API Tokens in Sevalla dashboard)
+#   SEVALLA_STATIC_SITE_ID   — The static site ID from your Sevalla dashboard
+#
+# GitHub PAT required in the WP plugin (Build tab):
+#   Fine-grained token : Actions (read/write) + Contents (read)
+#   Classic token      : repo scope (private repo) or public_repo + workflow (public repo)
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Deploy to Sevalla
+
+on:
+  workflow_dispatch:        # Triggered manually or by the WP plugin
+  push:
+    branches: [$default-branch]   # Replace with your default branch name (e.g. main, master, production)
+
+jobs:
+  deploy:
+    name: Deploy to Sevalla
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout ────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Deploy to Sevalla ───────────────────────────────────────────────
+      # Sevalla handles npm ci + npm run build on its own infrastructure.
+      # Set WORDPRESS_API_URL (and any other env vars) in the Sevalla dashboard
+      # under your static site's Environment Variables settings.
+      - name: Deploy to Sevalla
+        uses: sevalla-hosting/sevalla-deploy@v2.0.0
+        with:
+          action: deploy-static-site
+          sevalla-token: ${{ secrets.SEVALLA_DEPLOYMENT_TOKEN }}
+          static-site-id: ${{ secrets.SEVALLA_STATIC_SITE_ID }}
+          branch: ${{ github.ref_name }}
+          wait-for-finish: true
+
+      # ── 3. Deployment summary ──────────────────────────────────────────────
+      - name: Deployment summary
+        run: |
+          echo "✅ Deployed successfully to Sevalla"
+          echo "Commit: ${{ github.sha }}"
+          echo "Triggered by: ${{ github.actor }}"

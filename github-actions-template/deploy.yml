@@ -1,0 +1,60 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Place this file in your Astro repository at:
+#   .github/workflows/deploy.yml
+#
+# The CODESM Decoupled Bundle WP plugin triggers this workflow via the
+# GitHub Actions workflow_dispatch API whenever content changes in WordPress.
+#
+# Required repository secret:  WORDPRESS_API_URL
+# Required environment secret: Any hosting deploy token (see "Deploy" step)
+#
+# GitHub PAT required in the WP plugin (Build tab):
+#   Fine-grained token : Actions (read/write) + Contents (read)
+#   Classic token      : repo scope (private repo) or public_repo + workflow (public repo)
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Deploy Astro Site
+
+on:
+  workflow_dispatch:          # Triggered manually or by the WP plugin
+  push:
+    branches: [main]          # Also runs on direct pushes to main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+        env:
+          WORDPRESS_API_URL: ${{ secrets.WORDPRESS_API_URL }}
+
+      # ── Deploy ────────────────────────────────────────────────────────────
+      # Replace this step with your actual hosting provider's deploy action.
+      # Examples:
+      #   Cloudflare Pages : cloudflare/pages-action@v1
+      #   Netlify          : netlify/actions/cli@master  (netlify deploy --prod)
+      #   AWS S3 + CloudFront sync
+      #   FTP/SFTP upload
+      - name: Deploy
+        run: echo "Add your deploy step here"
+        # Example for Cloudflare Pages:
+        # uses: cloudflare/pages-action@v1
+        # with:
+        #   apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        #   accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        #   projectName: your-project-name
+        #   directory: dist

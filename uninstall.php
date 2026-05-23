@@ -1,0 +1,21 @@
+<?php
+/**
+ * Runs when the plugin is deleted from the WordPress admin.
+ *
+ * Removes all data this plugin has stored in the database so no sensitive
+ * information (GitHub token, build log) is left behind after uninstallation.
+ *
+ * @package CODESM\DecoupledBundle
+ */
+
+if (!defined('WP_UNINSTALL_PLUGIN')) exit;
+
+delete_option('codesm_decoupled_bundle_settings');
+delete_option('codesm_decoupled_bundle_builds_log');
+delete_transient('codesm_decoupled_bundle_build_rl');
+
+// Remove any pending cron event
+$timestamp = wp_next_scheduled('codesm_decoupled_bundle_auto_build');
+if ($timestamp) {
+    wp_unschedule_event($timestamp, 'codesm_decoupled_bundle_auto_build');
+}
