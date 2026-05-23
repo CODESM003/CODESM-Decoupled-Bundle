@@ -10,6 +10,12 @@
         margin-bottom: 16px;
     }
 
+    // Match SelectControl height to TextControl
+    .components-select-control__input {
+        height: 40px !important;
+        padding: 6px 26px 6px 8px !important;
+    }
+
     &__footer {
         margin-top: 24px;
         padding-top: 16px;

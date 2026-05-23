@@ -708,33 +708,69 @@ function App() {
                     {/* ════════════════ SITE ════════════════ */}
                     {activeTab === 'site' && (
                         <div className="codesm-decoupled-bundle-tab-content">
-                            <div className="codesm-decoupled-bundle-field">
-                                <TextControl
-                                    label="Site Title"
-                                    value={si.title || ''}
-                                    onChange={setSite('title')}
-                                    __nextHasNoMarginBottom
-                                />
+                            <div className="codesm-decoupled-bundle-section">
+                                <h3 className="codesm-decoupled-bundle-section__title">Identity</h3>
+                                <div className="codesm-decoupled-bundle-field">
+                                    <TextControl
+                                        label="Site Title"
+                                        value={si.title || ''}
+                                        onChange={setSite('title')}
+                                        __nextHasNoMarginBottom
+                                    />
+                                </div>
+                                <div className="codesm-decoupled-bundle-field">
+                                    <TextareaControl
+                                        label="Site Description"
+                                        value={si.description || ''}
+                                        onChange={setSite('description')}
+                                        rows={3}
+                                        __nextHasNoMarginBottom
+                                    />
+                                </div>
                             </div>
-                            <div className="codesm-decoupled-bundle-field">
-                                <TextareaControl
-                                    label="Site Description"
-                                    value={si.description || ''}
-                                    onChange={setSite('description')}
-                                    rows={3}
-                                    __nextHasNoMarginBottom
-                                />
-                            </div>
-                            <div className="codesm-decoupled-bundle-field">
-                                <TextareaControl
-                                    label="Global JSON-LD"
-                                    help="Sitewide structured data — without wrapping <script> tags. Applied on every page."
-                                    value={si.json_ld || ''}
-                                    onChange={setSite('json_ld')}
-                                    rows={8}
-                                    className="codesm-decoupled-bundle-code-field"
-                                    __nextHasNoMarginBottom
-                                />
+
+                            <div className="codesm-decoupled-bundle-section">
+                                <h3 className="codesm-decoupled-bundle-section__title">Title Format</h3>
+                                <p className="codesm-decoupled-bundle-panel-desc">
+                                    Controls how the <code>&lt;title&gt;</code> tag is constructed in your Astro layout.
+                                    Use <code>%title%</code>, <code>%site%</code>, and <code>%sep%</code> as tokens.
+                                </p>
+                                <div className="codesm-decoupled-bundle-field-row">
+                                    <div className="codesm-decoupled-bundle-field codesm-decoupled-bundle-field--grow">
+                                        <TextControl
+                                            label="Title Format"
+                                            value={si.title_format || '%title% %sep% %site%'}
+                                            onChange={setSite('title_format')}
+                                            placeholder="%title% %sep% %site%"
+                                            __nextHasNoMarginBottom
+                                        />
+                                    </div>
+                                    <div className="codesm-decoupled-bundle-field codesm-decoupled-bundle-field--narrow">
+                                        <SelectControl
+                                            label="Separator"
+                                            value={si.title_separator || '|'}
+                                            options={[
+                                                { label: '| (Pipe)',    value: '|' },
+                                                { label: '- (Hyphen)',  value: '-' },
+                                                { label: '– (En Dash)', value: '–' },
+                                                { label: '· (Middot)',  value: '·' },
+                                                { label: '• (Bullet)',  value: '•' },
+                                                { label: '/ (Slash)',   value: '/' },
+                                                { label: ': (Colon)',   value: ':' },
+                                            ]}
+                                            onChange={setSite('title_separator')}
+                                            __nextHasNoMarginBottom
+                                        />
+                                    </div>
+                                </div>
+                                <p className="codesm-decoupled-bundle-hint">
+                                    Preview: <strong>{
+                                        (si.title_format || '%title% %sep% %site%')
+                                            .replace('%title%', 'About Us')
+                                            .replace('%sep%', si.title_separator || '|')
+                                            .replace('%site%', si.title || 'My Site')
+                                    }</strong>
+                                </p>
                             </div>
                         </div>
                     )}
@@ -866,6 +902,17 @@ function App() {
                                 <p className="codesm-decoupled-bundle-panel-desc">
                                     Injected on <strong>every page</strong>. Include full tags (e.g. <code>&lt;script&gt;…&lt;/script&gt;</code>).
                                 </p>
+                                <div className="codesm-decoupled-bundle-field">
+                                    <TextareaControl
+                                        label="Global JSON-LD"
+                                        help="Sitewide structured data — without wrapping <script> tags. Applied on every page."
+                                        value={sc.json_ld || ''}
+                                        onChange={(val) => setSettings(p => ({ ...p, scripts: { ...p.scripts, json_ld: val } }))}
+                                        rows={6}
+                                        className="codesm-decoupled-bundle-code-field"
+                                        __nextHasNoMarginBottom
+                                    />
+                                </div>
                                 <ScriptFields
                                     values={{ header: sc.header || '', body_start: sc.body_start || '', body_end: sc.body_end || '' }}
                                     onChange={(updated) => setSettings(p => ({ ...p, scripts: { ...p.scripts, ...updated } }))}

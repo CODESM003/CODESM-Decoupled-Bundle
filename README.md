@@ -54,10 +54,10 @@ The settings page is organised into six tabs:
 
 | Tab | Contents |
 |-----|----------|
-| **Site** | Title, description, sitewide JSON-LD |
+| **Site** | Title, description, title format and separator |
 | **Contact** | Phone numbers, email addresses, locations (each with address + coordinates) — all as multi-entry arrays |
 | **Social** | Multiple entries per platform — each entry is a platform + URL pair |
-| **Scripts** | GTM container ID, global script injection (header/body), per-page rules |
+| **Scripts** | GTM container ID, global JSON-LD, global script injection (header/body), per-page rules |
 | **Build** | GitHub credentials, multi-branch auto-build targets, manual build trigger |
 | **Deployments** | Live GitHub Actions run history and local WP dispatch log |
 
@@ -79,7 +79,8 @@ All settings are stored in a single WordPress option key: `codesm_decoupled_bund
 |-------|------|-------------|
 | Site Title | `site.title` | Defaults to the WordPress site name. Used in Astro `<title>` and OG tags. |
 | Site Description | `site.description` | Defaults to the WordPress tagline. Used in meta description. |
-| Global JSON-LD | `site.json_ld` | Sitewide structured data. Injected on every page without `<script>` wrappers. |
+| Title Format | `site.title_format` | Token template for the `<title>` tag. Default: `%title% %sep% %site%`. Tokens: `%title%`, `%site%`, `%sep%`. |
+| Title Separator | `site.title_separator` | Character used as `%sep%` in the title format. Default: `\|`. Options: `\|`, `-`, `–`, `·`, `•`, `/`, `:`. |
 
 ### `contact` — Contact Information
 
@@ -137,6 +138,7 @@ These scripts are injected on **every page** of the Astro site.
 
 | Field | Path | Description |
 |-------|------|-------------|
+| Global JSON-LD | `scripts.json_ld` | Sitewide structured data. Injected on every page without `<script>` wrappers. |
 | Header Scripts | `scripts.header` | Raw HTML injected inside `<head>`. Use full `<script>` or `<link>` tags. |
 | Body Start Scripts | `scripts.body_start` | Raw HTML injected immediately after `<body>` opens. |
 | Body End Scripts | `scripts.body_end` | Raw HTML injected just before `</body>` closes. |
@@ -199,7 +201,8 @@ Returns all non-sensitive settings. This is the single endpoint your Astro site 
   "site": {
     "title": "My Site",
     "description": "We build great things.",
-    "json_ld": "{\"@context\":\"https://schema.org\", ...}"
+    "title_separator": "|",
+    "title_format": "%title% %sep% %site%"
   },
   "contact": {
     "phones": [
@@ -233,6 +236,7 @@ Returns all non-sensitive settings. This is the single endpoint your Astro site 
     "id": "GTM-XXXXXXX"
   },
   "scripts": {
+    "json_ld":    "{\"@context\":\"https://schema.org\", ...}",
     "header":     "<script>/* global header script */</script>",
     "body_start": "",
     "body_end":   "<script>/* global footer script */</script>",
@@ -381,7 +385,7 @@ Add to `src/lib/siteSettings.js`:
  */
 export function getPageInjections(settings, currentPath) {
     const global = {
-        json_ld:    settings.site?.json_ld       || '',
+        json_ld:    settings.scripts?.json_ld     || '',
         header:     settings.scripts?.header     || '',
         body_start: settings.scripts?.body_start || '',
         body_end:   settings.scripts?.body_end   || '',
@@ -419,17 +423,40 @@ function matchesPattern(pattern, path) {
 import { getSiteSettings } from '../lib/wordpress.js';
 import { getPageInjections } from '../lib/siteSettings.js';
 
+interface Props {
+    title?:       string;  // page-level title — omit to use site title
+    description?: string;  // page-level description — omit to use site description
+    canonicalUrl?: string;
+}
+
 const settings    = await getSiteSettings();
 const currentPath = new URL(Astro.request.url).pathname;
 const inject      = getPageInjections(settings, currentPath);
+
+// Build <title> using the stored format template
+const pageTitle   = Astro.props.title       ?? settings.site.title;
+const pageDesc    = Astro.props.description  ?? settings.site.description;
+const sep         = settings.site.title_separator ?? '|';
+const titleFormat = settings.site.title_format    ?? '%title% %sep% %site%';
+const fullTitle   = titleFormat
+    .replace('%title%', pageTitle)
+    .replace('%sep%',   sep)
+    .replace('%site%',  settings.site.title);
 ---
 <!doctype html>
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{settings.site.title}</title>
-    <meta name="description" content={settings.site.description} />
+    <title>{fullTitle}</title>
+    <meta name="description" content={pageDesc} />
+
+    <!-- Open Graph -->
+    <meta property="og:title"       content={fullTitle} />
+    <meta property="og:description" content={pageDesc} />
+    <meta property="og:type"        content="website" />
+    {Astro.props.canonicalUrl && <meta property="og:url" content={Astro.props.canonicalUrl} />}
+    {Astro.props.canonicalUrl && <link rel="canonical" href={Astro.props.canonicalUrl} />}
 
     <!-- JSON-LD structured data -->
     {inject.json_ld && (

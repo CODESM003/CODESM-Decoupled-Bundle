@@ -88,9 +88,10 @@ class Settings {
 
             // ── Site ─────────────────────────────────────────────────────────
             'site' => [
-                'title'       => sanitize_text_field($input['site']['title']             ?? $c['site']['title']),
-                'description' => sanitize_textarea_field($input['site']['description']   ?? $c['site']['description']),
-                'json_ld'     => self::sanitize_raw($input['site']['json_ld']            ?? $c['site']['json_ld']),
+                'title'            => sanitize_text_field($input['site']['title']             ?? $c['site']['title']),
+                'description'      => sanitize_textarea_field($input['site']['description']   ?? $c['site']['description']),
+                'title_separator'  => self::sanitize_title_separator($input['site']['title_separator'] ?? $c['site']['title_separator']),
+                'title_format'     => sanitize_text_field($input['site']['title_format']      ?? $c['site']['title_format']),
             ],
 
             // ── Contact ───────────────────────────────────────────────────────
@@ -110,6 +111,7 @@ class Settings {
 
             // ── Scripts ───────────────────────────────────────────────────────
             'scripts' => [
+                'json_ld'    => self::sanitize_raw($input['scripts']['json_ld']    ?? $c['scripts']['json_ld']),
                 'header'     => self::sanitize_raw($input['scripts']['header']     ?? $c['scripts']['header']),
                 'body_start' => self::sanitize_raw($input['scripts']['body_start'] ?? $c['scripts']['body_start']),
                 'body_end'   => self::sanitize_raw($input['scripts']['body_end']   ?? $c['scripts']['body_end']),
@@ -144,6 +146,12 @@ class Settings {
      * @param  mixed  $value
      * @return string
      */
+    private static function sanitize_title_separator(mixed $value): string {
+        $allowed = ['|', '-', '–', '·', '•', '/', ':'];
+        $v = is_string($value) ? $value : '|';
+        return in_array($v, $allowed, true) ? $v : '|';
+    }
+
     public static function sanitize_raw(mixed $value): string {
         return is_string($value) ? trim($value) : '';
     }
@@ -366,9 +374,10 @@ class Settings {
         return [
 
             'site' => [
-                'title'       => get_bloginfo('name'),
-                'description' => get_bloginfo('description'),
-                'json_ld'     => '',
+                'title'           => get_bloginfo('name'),
+                'description'     => get_bloginfo('description'),
+                'title_separator' => '|',
+                'title_format'    => '%title% %sep% %site%',
             ],
 
             'contact' => [
@@ -384,6 +393,7 @@ class Settings {
             ],
 
             'scripts' => [
+                'json_ld'    => '',
                 'header'     => '',
                 'body_start' => '',
                 'body_end'   => '',
