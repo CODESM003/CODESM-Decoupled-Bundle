@@ -67,6 +67,45 @@ class Settings {
         return $settings;
     }
 
+    /**
+     * Checks if the site is currently in maintenance mode.
+     *
+     * Returns true if maintenance mode is enabled and the current time is between
+     * the start and end timestamps (or no end time is set).
+     *
+     * @return bool True if in maintenance mode, false otherwise.
+     */
+    public static function is_maintenance_mode(): bool {
+        $settings = self::get();
+        $maintenance = $settings['maintenance'] ?? [];
+
+        if (empty($maintenance['enabled'])) {
+            return false;
+        }
+
+        $now = current_time('timestamp');
+        $from = (int) ($maintenance['from'] ?? 0);
+        $to = (int) ($maintenance['to'] ?? 0);
+
+        // If from is not set, treat as immediately active
+        if ($from === 0) {
+            return true;
+        }
+
+        // If not yet at start time, not in maintenance
+        if ($now < $from) {
+            return false;
+        }
+
+        // If to is not set, maintenance is open-ended
+        if ($to === 0) {
+            return true;
+        }
+
+        // Otherwise, in maintenance if current time is before end time
+        return $now <= $to;
+    }
+
     // -------------------------------------------------------------------------
     // Write
     // -------------------------------------------------------------------------
@@ -126,6 +165,13 @@ class Settings {
                 'debounce_minutes' => max(1, (int) ($input['build']['debounce_minutes']       ?? $c['build']['debounce_minutes'])),
                 'auto_targets'     => self::sanitize_auto_targets($input['build']['auto_targets'] ?? $c['build']['auto_targets']),
             ],
+
+            // ── Maintenance ──────────────────────────────────────────────────
+            'maintenance' => [
+                'enabled' => (bool) ($input['maintenance']['enabled']                         ?? $c['maintenance']['enabled']),
+                'from'    => max(0, (int) ($input['maintenance']['from']                      ?? $c['maintenance']['from'])),
+                'to'      => max(0, (int) ($input['maintenance']['to']                        ?? $c['maintenance']['to'])),
+            ],
         ];
 
         update_option(self::OPTION_NAME, $sanitized);
@@ -152,7 +198,7 @@ class Settings {
         return in_array($v, $allowed, true) ? $v : '|';
     }
 
-    public static function sanitize_raw(mixed $value): string {
+    private static function sanitize_raw(mixed $value): string {
         return is_string($value) ? trim($value) : '';
     }
 
@@ -232,9 +278,11 @@ class Settings {
                 'zip'     => sanitize_text_field($entry['address']['zip']     ?? ''),
                 'country' => sanitize_text_field($entry['address']['country'] ?? ''),
             ];
+            $lat = sanitize_text_field($entry['coordinates']['lat'] ?? '');
+            $lng = sanitize_text_field($entry['coordinates']['lng'] ?? '');
             $coordinates = [
-                'lat' => sanitize_text_field($entry['coordinates']['lat'] ?? ''),
-                'lng' => sanitize_text_field($entry['coordinates']['lng'] ?? ''),
+                'lat' => (is_numeric($lat) ? $lat : ''),
+                'lng' => (is_numeric($lng) ? $lng : ''),
             ];
 
             if (empty(array_filter($address)) && empty(array_filter($coordinates))) continue;
@@ -408,6 +456,12 @@ class Settings {
                 'debounce_minutes' => 5,
                 // Each target: { ref: string, workflows: string[] }
                 'auto_targets'     => [],
+            ],
+
+            'maintenance' => [
+                'enabled' => false,
+                'from'    => 0,
+                'to'      => 0,
             ],
         ];
     }

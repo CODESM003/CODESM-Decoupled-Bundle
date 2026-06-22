@@ -59,7 +59,7 @@ npm start
 
 ## Admin Interface
 
-The settings page is organised into six tabs:
+The settings page is organised into seven tabs:
 
 | Tab | Contents |
 |-----|----------|
@@ -67,14 +67,26 @@ The settings page is organised into six tabs:
 | **Contact** | Phone numbers, email addresses, locations (each with address + coordinates) — all as multi-entry arrays |
 | **Social** | Multiple entries per platform — each entry is a platform + URL pair |
 | **Scripts** | GTM container ID, global JSON-LD, global script injection (header/body), per-page rules |
+| **Maintenance** | Maintenance mode enable/disable, scheduled start and end times (UTC) |
 | **Build** | GitHub credentials, multi-branch auto-build targets, manual build trigger |
 | **Deployments** | Live GitHub Actions run history and local WP dispatch log |
 
 The **Save Settings** button lives in a footer below all tabs (hidden on the Deployments tab). The active tab is persisted in the URL as `?tab=` so the page can be bookmarked or refreshed without losing context.
 
+### Accessibility
+
+The admin interface is fully accessible to screen readers and keyboard navigation:
+
+- **ARIA live regions** on maintenance mode notices (`role="status"`, `aria-live="polite"`) announce state changes to assistive technologies
+- **Semantic dashicons** replace emoji icons for clear visual distinction without relying on font interpretation
+- **CSS-based styling** (no inline styles) ensures consistent presentation across themes and allows user-level customization
+- **Semantic HTML** with proper heading hierarchy and label associations throughout forms
+
+Within the **Maintenance** tab, you can enable maintenance mode and set start/end times in UTC. The page displays the current UTC time so you can reference "now" when scheduling maintenance windows. Leave times empty for immediate activation or open-ended maintenance.
+
 Within the **Build** tab, entering your GitHub repository and Personal Access Token unlocks a **Load Workflows & Branches** button that fetches live data from GitHub — no manual IDs to copy. GitHub data is also auto-loaded when the tab opens (if credentials are present). Clicking **Trigger Build Now** shows a confirmation modal before dispatching.
 
-A site-wide WordPress admin notice appears whenever an auto-build is pending, showing the scheduled time, repository, and branch targets.
+A site-wide WordPress admin notice appears whenever an auto-build is pending, showing the scheduled time, repository, and branch targets. A separate notice appears when maintenance mode is active, showing the countdown until it ends.
 
 ---
 
@@ -181,6 +193,21 @@ Each entry targets a specific URL pattern and overrides/supplements the globals 
 | Auto-trigger | `build.auto_enabled` | Master switch — enables the debounced auto-build system. |
 | Debounce delay | `build.debounce_minutes` | Minutes to wait after the last change before firing. Minimum 1, default 5. |
 | Auto Targets | `build.auto_targets` | Array of branch targets for auto-builds (see below). |
+
+### `maintenance` — Maintenance Mode
+
+These fields control the site-wide maintenance mode, which can be used to notify visitors of scheduled downtime. All fields are public.
+
+| Field | Path | Type | Description |
+|-------|------|------|-------------|
+| Enabled | `maintenance.enabled` | boolean | Whether maintenance mode is active. |
+| Start Time | `maintenance.from` | Unix timestamp | When maintenance starts (0 = immediately if enabled). |
+| End Time | `maintenance.to` | Unix timestamp | When maintenance ends (0 = open-ended). |
+
+**Status calculation**: Maintenance mode is considered **active** if:
+- `enabled` is `true` AND
+- Current time >= `from` (if `from` is set) AND
+- Current time <= `to` (if `to` is set, otherwise always true once started)
 
 #### Auto targets — `build.auto_targets[]`
 
@@ -348,7 +375,7 @@ Cancels the pending debounced auto-build cron event, if one is scheduled. Has no
 
 **Requires authentication** (`manage_options` capability).
 
-Returns the 15 most recent workflow runs across all workflows in the repo, merged with the local dispatch log. Also includes the next scheduled auto-build time and its configured targets.
+Returns the 10 most recent workflow runs across all workflows in the repo, merged with the local dispatch log. Also includes the next scheduled auto-build time and its configured targets. Results are cached for 5 minutes.
 
 **Response shape (abbreviated):**
 
@@ -365,19 +392,36 @@ Returns the 15 most recent workflow runs across all workflows in the repo, merge
 }
 ```
 
+### `POST /wp-json/codesm-decoupled-bundle/v1/clear-logs`
+
+**Requires authentication** (`manage_options` capability).
+
+Clears the local WP dispatch log. Useful for privacy and maintenance.
+
+**Response:** `{ success: true, cleared: true }`
+
+The `cleared` flag is `true` if logs were present and deleted, `false` if the log was already empty.
+
 ---
 
 ## Abilities API
 
-Requires WordPress 6.9+. The plugin registers a `codesm-decoupled-bundle` ability category and five abilities that expose the same operations as the REST API in a machine-readable, discoverable format — intended for AI agents and automation tools.
+Requires WordPress 6.9+. The plugin registers a `codesm-decoupled-bundle` ability category and ten abilities that expose the same operations as the REST API in a machine-readable, discoverable format — intended for AI agents and automation tools.
+
+Agents can discover what workflows and branches are available before triggering builds, check maintenance mode status, and manage the full plugin configuration.
 
 | Ability slug | Annotation | Auth | Description |
 |---|---|---|---|
 | `codesm-decoupled-bundle/get-settings` | `readonly` | Public | Returns the public site settings |
 | `codesm-decoupled-bundle/save-settings` | `idempotent` | `manage_options` | Saves the full settings payload including build configuration |
+| `codesm-decoupled-bundle/get-workflows` | `readonly` | `manage_options` | Returns all available GitHub workflows for discovery |
+| `codesm-decoupled-bundle/get-branches` | `readonly` | `manage_options` | Returns all available GitHub branches for discovery |
 | `codesm-decoupled-bundle/trigger-build` | — | `manage_options` | Dispatches a GitHub Actions workflow by ID and branch |
 | `codesm-decoupled-bundle/get-builds` | `readonly` | `manage_options` | Returns GitHub workflow runs merged with the local dispatch log |
 | `codesm-decoupled-bundle/cancel-build` | `destructive` | `manage_options` | Cancels the pending debounced auto-build cron event |
+| `codesm-decoupled-bundle/clear-logs` | `destructive` | `manage_options` | Clears the local WordPress dispatch log |
+| `codesm-decoupled-bundle/get-maintenance-status` | `readonly` | Public | Returns current maintenance mode status and scheduled windows |
+| `codesm-decoupled-bundle/set-maintenance-mode` | `idempotent` | `manage_options` | Enables/disables maintenance mode and sets scheduled times |
 
 Each ability declares full JSON Schema definitions for its inputs and outputs and is marked `show_in_rest: true` so it appears in the WordPress REST discovery index. The `trigger-build` ability shares its validation and dispatch logic with the REST route via `BuildManager::trigger_manual()` — no duplicated code between the two interfaces.
 
@@ -426,12 +470,91 @@ curl -X DELETE -u "username:app-password" \
 
 ### Executing from PHP
 
+**Discover available workflows:**
+
+```php
+$ability = wp_get_ability( 'codesm-decoupled-bundle/get-workflows' );
+if ( $ability ) {
+    $result = $ability->execute( [] );
+    if ( ! is_wp_error( $result ) ) {
+        foreach ( $result['workflows'] as $workflow ) {
+            echo $workflow['name'] . ' (' . $workflow['id'] . ')' . "\n";
+        }
+    }
+}
+```
+
+**Discover available branches:**
+
+```php
+$ability = wp_get_ability( 'codesm-decoupled-bundle/get-branches' );
+if ( $ability ) {
+    $result = $ability->execute( [] );
+    if ( ! is_wp_error( $result ) ) {
+        foreach ( $result['branches'] as $branch ) {
+            $label = $branch['default'] ? ' (default)' : '';
+            echo $branch['name'] . $label . "\n";
+        }
+    }
+}
+```
+
+**Trigger a build:**
+
 ```php
 $ability = wp_get_ability( 'codesm-decoupled-bundle/trigger-build' );
 if ( $ability ) {
     $result = $ability->execute( [ 'workflow_id' => '12345678', 'ref' => 'main' ] );
     if ( ! is_wp_error( $result ) ) {
         // $result['success'], $result['timestamp'], etc.
+    }
+}
+```
+
+**Clear logs:**
+
+```php
+$ability = wp_get_ability( 'codesm-decoupled-bundle/clear-logs' );
+if ( $ability ) {
+    $result = $ability->execute( [] );
+    if ( ! is_wp_error( $result ) ) {
+        echo $result['cleared'] ? 'Logs cleared' : 'No logs to clear';
+    }
+}
+```
+
+**Check maintenance mode status:**
+
+```php
+$ability = wp_get_ability( 'codesm-decoupled-bundle/get-maintenance-status' );
+if ( $ability ) {
+    $result = $ability->execute( [] );
+    if ( ! is_wp_error( $result ) ) {
+        if ( $result['active'] ) {
+            echo 'Site is in maintenance mode';
+            echo ' until ' . gmdate( 'Y-m-d H:i', $result['to'] );
+        }
+    }
+}
+```
+
+**Enable maintenance mode:**
+
+```php
+$ability = wp_get_ability( 'codesm-decoupled-bundle/set-maintenance-mode' );
+if ( $ability ) {
+    // Enable maintenance mode for the next 2 hours
+    $start = current_time( 'timestamp' );
+    $end = $start + ( 2 * HOUR_IN_SECONDS );
+    
+    $result = $ability->execute( [
+        'enabled' => true,
+        'from'    => $start,
+        'to'      => $end,
+    ] );
+    
+    if ( ! is_wp_error( $result ) ) {
+        echo $result['message'];
     }
 }
 ```
@@ -443,6 +566,35 @@ Use the **existing REST routes** (`/wp-json/codesm-decoupled-bundle/v1/...`) for
 Use the **Abilities API** when the caller has no prior knowledge of this plugin:
 - An AI agent discovering and invoking site capabilities autonomously
 - A plugin that wants to optionally integrate without a hard dependency — it calls `wp_get_ability()` and does nothing if the ability isn't present
+
+---
+
+## Plugin Auto-Updates from GitHub
+
+The plugin automatically checks for updates from the public GitHub repository and integrates with WordPress's built-in update system. No configuration needed — updates are discovered automatically.
+
+### How it works
+
+1. When a release is tagged on GitHub (e.g., `v0.1.0`), WordPress periodically checks the GitHub API for new versions
+2. If a newer version is available, it appears in **Plugins → Updates** alongside other plugin updates
+3. Click **Update** to download and install the latest version
+4. The plugin works with both stable releases and pre-release versions
+
+### Requirements
+
+- Public GitHub repository: `CODESM003/CODESM-Decoupled-Bundle`
+- Tagged releases (e.g., `v1.0.0`, `v1.1.0`)
+- Check is cached for 12 hours to avoid excessive API requests
+
+### Release versioning
+
+Use semantic versioning for release tags:
+- `v0.0.1` — initial release
+- `v1.0.0` — major release
+- `v1.1.0` — minor release
+- `v1.1.1` — patch release
+
+GitHub API is called via the public endpoint — no authentication required.
 
 ---
 
@@ -779,7 +931,7 @@ When **auto-build** is enabled and at least one target has a branch and workflow
 
 ## Deployment History
 
-The **Deployments** tab shows the 15 most recent GitHub Actions runs across all workflows in the repo, merged with the local WP dispatch log (capped at 20 entries).
+The **Deployments** tab shows the 10 most recent GitHub Actions runs across all workflows in the repo, merged with the local WP dispatch log (capped at 10 entries).
 
 If an auto-build is scheduled, a banner at the top of the tab shows the next build time (UTC), a live countdown, the repository, and each branch target with its workflow count. A **Cancel Scheduled Build** button on the right opens a confirmation modal before unscheduling the cron event.
 
@@ -800,12 +952,103 @@ Cross-referencing uses the GitHub run `created_at` timestamp matched against the
 
 ## Security Notes
 
+### Public vs. Authenticated Endpoints
+
 - The `GET /settings` endpoint is **intentionally public** — it is designed to be called by the Astro CDN/build runner at build time. Treat it like a `robots.txt`: publicly readable, not sensitive.
 - The entire `build` section (GitHub token, repo, auto_targets) is **always stripped server-side** before the public response is sent.
+- All admin endpoints (`POST /settings`, `POST /trigger-build`, `POST /cancel-build`, `POST /clear-logs`) require valid WordPress nonce verification (CSRF protection) and the `manage_options` capability.
+
+### GitHub Token Security
+
+- The GitHub Personal Access Token is stored in the WordPress database and **never exposed** to the frontend or public APIs.
+- The admin UI shows only a boolean flag indicating whether a token is configured, not the token itself.
+- When saving settings, if the token field is empty, the existing token is preserved; if a new value is provided, it replaces the old token.
+- Tokens are used server-side only by BuildManager for GitHub API calls.
+- Set an expiry date on your token and rotate it before expiration. If compromised, delete on GitHub and generate a new one immediately.
+
+### Script Injection & Output
+
 - Script injection fields (header/body/JSON-LD) are stored raw and output unescaped. They are only editable by `manage_options` users (admins). This is intentional — they contain trusted admin-entered HTML/JS.
-- GitHub API errors are logged server-side only; sanitized generic messages are returned to the browser.
-- The `html_url` field in build runs is validated against `https://github.com/` before being stored.
-- All data created by the plugin is removed when the plugin is deleted (settings, build log, transients, scheduled cron).
+- GitHub API errors are logged server-side only; sanitized generic messages are returned to the browser to avoid information disclosure.
+- The `html_url` field in build runs is validated against `https://github.com/` before being displayed.
+
+### Data Cleanup
+
+- All data created by the plugin is removed when the plugin is deleted:
+  - Settings option (`codesm_decoupled_bundle_settings`)
+  - Build log option (`codesm_decoupled_bundle_builds_log`)
+  - All transients with plugin prefix (rate limiting, GitHub data cache, per-user caches)
+  - Scheduled cron events
+- Comprehensive wildcard-based transient cleanup ensures no orphaned cached data remains
+- Prevents sensitive cached API responses from lingering after uninstall
+
+### Error Logging & Sensitive Data Redaction
+
+- All error messages logged server-side have sensitive data automatically redacted:
+  - GitHub Personal Access Tokens (Bearer tokens)
+  - Email addresses
+  - API credentials
+- Applied universally across BuildManager API error handling to prevent token leaks in `error_log()`
+- Original detailed errors are stored in the local log for admins; sanitized versions go to `error_log()` to prevent token leaks
+- Client-facing error messages are generic and user-friendly, never exposing internal API details
+- This prevents credentials from accidentally leaking in debug logs, log aggregators, or monitoring tools
+
+### SQL Injection Prevention
+
+- All database queries use `$wpdb->prepare()` with parameterized placeholders
+- Applied to transient cleanup queries in `uninstall.php` and logs clearing in RestApi
+- Prevents dynamic table or option name manipulation even if values come from user input
+
+### Input Validation
+
+- Coordinate fields (latitude/longitude) validated as numeric before storage
+- GitHub repository slug validated against allowed character set (alphanumeric, hyphens, underscores, dots)
+- URL patterns for per-page script rules validated against a strict whitelist (no regex metacharacters)
+- Settings sanitized server-side before all REST endpoints return responses
+
+### API Rate Limiting
+
+- **Rate limit**: Maximum **30 API requests per minute per user**
+- **Applies to**: `GET /workflows`, `GET /branches`, `GET /builds`
+- **Purpose**: Prevents GitHub API rate limit exhaustion (5000 req/hour authenticated limit)
+- **Response**: Returns HTTP **429 (Too Many Requests)** when exceeded
+- **Scope**: Per-user and per-minute window to allow multiple admins to work concurrently
+- **Caching**: Responses cached for 5-10 minutes to minimize API calls
+- Rate limit counter resets every minute using transient keys
+
+### Git Reference Validation
+
+- When dispatching workflows, the supplied branch/tag (`ref`) is validated against the repository's actual branches
+- **Prevents**: Dispatch attempts to non-existent branches (which would fail silently at GitHub)
+- **Behavior**: 
+  - User supplies ref → validated against `GET /branches` results
+  - Ref not found → returns HTTP 400 with clear error
+  - No ref supplied → falls back to repository's default branch
+- Saves debugging time by catching invalid branches early
+
+### Concurrent Operation Safety
+
+- Auto-build scheduling uses **transient-based locking** to prevent race conditions
+- When scheduling a debounce event, a 5-second lock prevents duplicate crons from being queued
+- **Scenario prevented**: Two rapid content changes → only ONE auto-build cron scheduled (not two)
+- Lock is automatically released after 5 seconds
+- Prevents the cron queue from accumulating duplicate builds
+
+### Type Safety & Code Quality
+
+- Filter callbacks include explicit return type declarations (PHP 8.0+ strict types)
+- Magic numbers extracted to named class constants (cache durations, rate limits, debounce windows)
+- Enables IDE autocomplete, catches type mismatches at development time, and improves code documentation
+
+### Cache Integrity Validation
+
+- All cached API responses are validated for structure **before being returned to the client**
+- **Validation checks**:
+  - Is the data an array? `is_array($cached)`
+  - Does it have the expected keys? `isset($cached['workflows'])`, `isset($cached['branches'])`, `isset($cached['runs'])`
+- **Prevents**: Malformed or corrupted cache from being served (cache poisoning from other plugins)
+- **Scope**: Per-user cache keys ensure data isolation
+- Invalid cache is silently refreshed by fetching fresh data from GitHub
 
 ---
 
@@ -823,12 +1066,13 @@ codesm-decoupled-bundle/
 │   └── deploy-to-sevalla.yml          Sevalla static site deploy template (build runs on Sevalla)
 ├── includes/
 │   └── classes/
-│       ├── Core.php                   Boots Admin, RestApi, BuildManager, Abilities
+│       ├── Core.php                   Boots Admin, RestApi, BuildManager, Abilities, GitHubUpdater
 │       ├── Settings.php               Option read/write and sanitization
 │       ├── BuildManager.php           GitHub dispatch, cron debounce, build log
 │       ├── RestApi.php                REST route registration and handlers
 │       ├── Admin.php                  WP admin menu page and script enqueue
-│       └── Abilities.php              WordPress Abilities API registration (WP 6.9+)
+│       ├── Abilities.php              WordPress Abilities API registration (WP 6.9+)
+│       └── GitHubUpdater.php          Auto-update plugin from GitHub releases
 └── src/
     ├── index.js                        React admin app (compiled to build/)
     └── styles.scss                     Admin styles

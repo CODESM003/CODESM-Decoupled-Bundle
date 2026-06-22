@@ -77,9 +77,14 @@ class Abilities {
     public static function register_abilities(): void {
         self::register_get_settings();
         self::register_save_settings();
+        self::register_get_workflows();
+        self::register_get_branches();
         self::register_trigger_build();
         self::register_get_builds();
         self::register_cancel_build();
+        self::register_clear_logs();
+        self::register_get_maintenance_status();
+        self::register_set_maintenance_mode();
     }
 
     /**
@@ -174,6 +179,91 @@ class Abilities {
     }
 
     /**
+     * Returns all available GitHub workflows for the configured repository.
+     *
+     * Requires manage_options — mirrors the admin GET /workflows REST route.
+     * Useful for agents to discover which workflows can be triggered.
+     *
+     * @return void
+     */
+    private static function register_get_workflows(): void {
+        wp_register_ability(
+            'codesm-decoupled-bundle/get-workflows',
+            [
+                'label'               => __('Get Available Workflows', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN),
+                'description'         => __('Returns all workflow_dispatch-enabled workflows in the GitHub repository. Use to discover which workflows can be triggered.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN),
+                'category'            => self::CATEGORY,
+                'input_schema'        => [],
+                'output_schema'       => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'workflows' => [
+                            'type'  => 'array',
+                            'items' => [
+                                'type'       => 'object',
+                                'properties' => [
+                                    'id'       => ['type' => 'string'],
+                                    'name'     => ['type' => 'string'],
+                                    'filename' => ['type' => 'string'],
+                                    'state'    => ['type' => 'string'],
+                                    'html_url' => ['type' => 'string'],
+                                ],
+                            ],
+                        ],
+                        'error'     => ['type' => ['string', 'null']],
+                    ],
+                ],
+                'permission_callback' => static function (): bool {
+                    return current_user_can('manage_options');
+                },
+                'execute_callback'    => [BuildManager::class, 'get_workflows'],
+                'meta'                => ['show_in_rest' => true, 'annotations' => ['readonly' => true]],
+            ]
+        );
+    }
+
+    /**
+     * Returns all available branches for the configured repository.
+     *
+     * Requires manage_options — mirrors the admin GET /branches REST route.
+     * Useful for agents to discover which branches are available for deployment.
+     *
+     * @return void
+     */
+    private static function register_get_branches(): void {
+        wp_register_ability(
+            'codesm-decoupled-bundle/get-branches',
+            [
+                'label'               => __('Get Available Branches', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN),
+                'description'         => __('Returns all branches in the GitHub repository. Use to discover which branches are available for workflow dispatch.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN),
+                'category'            => self::CATEGORY,
+                'input_schema'        => [],
+                'output_schema'       => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'branches' => [
+                            'type'  => 'array',
+                            'items' => [
+                                'type'       => 'object',
+                                'properties' => [
+                                    'name'    => ['type' => 'string'],
+                                    'default' => ['type' => 'boolean'],
+                                ],
+                            ],
+                        ],
+                        'error'    => ['type' => ['string', 'null']],
+                    ],
+                ],
+                'permission_callback' => static function (): bool {
+                    return current_user_can('manage_options');
+                },
+                'execute_callback'    => [BuildManager::class, 'get_branches'],
+                'meta'                => ['show_in_rest' => true, 'annotations' => ['readonly' => true]],
+            ]
+        );
+    }
+
+    /**
      * Manually dispatches a GitHub Actions workflow.
      *
      * Requires manage_options — mirrors the admin POST /trigger-build REST route.
@@ -218,7 +308,8 @@ class Abilities {
                 'execute_callback'    => static function (array $input): array {
                     return BuildManager::trigger_manual(
                         (string) ($input['workflow_id'] ?? ''),
-                        (string) ($input['ref']         ?? '')
+                        (string) ($input['ref']         ?? ''),
+                        true
                     );
                 },
                 'meta'                => ['show_in_rest' => true, 'annotations' => []],
@@ -295,6 +386,151 @@ class Abilities {
                     return ['success' => true];
                 },
                 'meta'                => ['show_in_rest' => true, 'annotations' => ['destructive' => true]],
+            ]
+        );
+    }
+
+    /**
+     * Clears the local dispatch log.
+     *
+     * Requires manage_options — mirrors the admin POST /clear-logs REST route.
+     * Useful for maintenance and privacy — removes build history stored in WordPress.
+     *
+     * @return void
+     */
+    private static function register_clear_logs(): void {
+        wp_register_ability(
+            'codesm-decoupled-bundle/clear-logs',
+            [
+                'label'               => __('Clear Build Logs', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN),
+                'description'         => __('Clears the local WordPress dispatch log. Useful for maintenance and privacy — does not affect GitHub action history.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN),
+                'category'            => self::CATEGORY,
+                'input_schema'        => [],
+                'output_schema'       => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'success' => ['type' => 'boolean'],
+                        'cleared' => [
+                            'type'        => 'boolean',
+                            'description' => __('True if logs were present and deleted, false if the log was already empty.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN),
+                        ],
+                    ],
+                ],
+                'permission_callback' => static function (): bool {
+                    return current_user_can('manage_options');
+                },
+                'execute_callback'    => static function (): array {
+                    $cleared = BuildManager::clear_logs();
+                    return ['success' => true, 'cleared' => $cleared];
+                },
+                'meta'                => ['show_in_rest' => true, 'annotations' => ['destructive' => true]],
+            ]
+        );
+    }
+
+    /**
+     * Returns the current maintenance mode status.
+     *
+     * Public — no authentication required. Returns whether maintenance mode is active
+     * and the scheduled time window.
+     *
+     * @return void
+     */
+    private static function register_get_maintenance_status(): void {
+        wp_register_ability(
+            'codesm-decoupled-bundle/get-maintenance-status',
+            [
+                'label'               => __('Get Maintenance Mode Status', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN),
+                'description'         => __('Returns the current maintenance mode status including enabled state and scheduled time window.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN),
+                'category'            => self::CATEGORY,
+                'input_schema'        => [],
+                'output_schema'       => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'enabled'   => ['type' => 'boolean'],
+                        'active'    => [
+                            'type'        => 'boolean',
+                            'description' => __('True if maintenance mode is currently active based on scheduled times.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN),
+                        ],
+                        'from'      => ['type' => 'integer'],
+                        'to'        => ['type' => 'integer'],
+                        'now'       => ['type' => 'integer'],
+                    ],
+                ],
+                'permission_callback' => '__return_true',
+                'execute_callback'    => static function (): array {
+                    $settings = Settings::get();
+                    $maintenance = $settings['maintenance'] ?? [];
+                    return [
+                        'enabled' => (bool) ($maintenance['enabled'] ?? false),
+                        'active'  => Settings::is_maintenance_mode(),
+                        'from'    => (int) ($maintenance['from'] ?? 0),
+                        'to'      => (int) ($maintenance['to'] ?? 0),
+                        'now'     => current_time('timestamp'),
+                    ];
+                },
+                'meta'                => ['show_in_rest' => true, 'annotations' => ['readonly' => true]],
+            ]
+        );
+    }
+
+    /**
+     * Sets the maintenance mode configuration.
+     *
+     * Requires manage_options — allows admins to enable/disable maintenance mode
+     * and set the scheduled time window.
+     *
+     * @return void
+     */
+    private static function register_set_maintenance_mode(): void {
+        wp_register_ability(
+            'codesm-decoupled-bundle/set-maintenance-mode',
+            [
+                'label'               => __('Set Maintenance Mode', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN),
+                'description'         => __('Enables or disables maintenance mode and sets the scheduled time window. The site can notify visitors during maintenance periods.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN),
+                'category'            => self::CATEGORY,
+                'input_schema'        => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'enabled' => [
+                            'type'        => 'boolean',
+                            'description' => __('Enable or disable maintenance mode.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN),
+                        ],
+                        'from'    => [
+                            'type'        => 'integer',
+                            'description' => __('Unix timestamp when maintenance mode starts (0 = immediately).', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN),
+                        ],
+                        'to'      => [
+                            'type'        => 'integer',
+                            'description' => __('Unix timestamp when maintenance mode ends (0 = open-ended).', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN),
+                        ],
+                    ],
+                ],
+                'output_schema'       => [
+                    'type'       => 'object',
+                    'properties' => [
+                        'success'      => ['type' => 'boolean'],
+                        'message'      => ['type' => 'string'],
+                        'maintenance'  => ['type' => 'object'],
+                    ],
+                ],
+                'permission_callback' => static function (): bool {
+                    return current_user_can('manage_options');
+                },
+                'execute_callback'    => static function (array $input): array {
+                    $settings = Settings::get();
+                    $settings['maintenance']['enabled'] = (bool) ($input['enabled'] ?? false);
+                    $settings['maintenance']['from'] = max(0, (int) ($input['from'] ?? 0));
+                    $settings['maintenance']['to'] = max(0, (int) ($input['to'] ?? 0));
+
+                    $saved = Settings::save($settings);
+                    return [
+                        'success'     => true,
+                        'message'     => __('Maintenance mode updated.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN),
+                        'maintenance' => $saved['maintenance'] ?? [],
+                    ];
+                },
+                'meta'                => ['show_in_rest' => true, 'annotations' => ['idempotent' => true]],
             ]
         );
     }

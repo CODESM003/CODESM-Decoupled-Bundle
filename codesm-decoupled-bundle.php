@@ -38,6 +38,7 @@ require_once CODESM_DECOUPLED_BUNDLE_DIRECTORY_PATH . 'includes/classes/BuildMan
 require_once CODESM_DECOUPLED_BUNDLE_DIRECTORY_PATH . 'includes/classes/RestApi.php';
 require_once CODESM_DECOUPLED_BUNDLE_DIRECTORY_PATH . 'includes/classes/Admin.php';
 require_once CODESM_DECOUPLED_BUNDLE_DIRECTORY_PATH . 'includes/classes/Abilities.php';
+require_once CODESM_DECOUPLED_BUNDLE_DIRECTORY_PATH . 'includes/classes/GitHubUpdater.php';
 require_once CODESM_DECOUPLED_BUNDLE_DIRECTORY_PATH . 'includes/classes/Core.php';
 
 add_action('plugins_loaded', static function (): void {

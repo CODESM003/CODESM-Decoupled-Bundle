@@ -24,6 +24,7 @@ const TABS = [
     { id: 'contact',     label: 'Contact' },
     { id: 'social',      label: 'Social' },
     { id: 'scripts',     label: 'Scripts' },
+    { id: 'maintenance', label: 'Maintenance' },
     { id: 'build',       label: 'Build' },
     { id: 'deployments', label: 'Deployments' },
 ];
@@ -66,6 +67,22 @@ function formatDate(iso) {
     } catch {
         return iso;
     }
+}
+
+function unixToUtcDateTime(unixTimestamp) {
+    if (!unixTimestamp) return '';
+    const date = new Date(unixTimestamp * 1000);
+    return date.toISOString().slice(0, 16);
+}
+
+function utcDateTimeToUnix(utcDateTime) {
+    if (!utcDateTime) return 0;
+    return Math.floor(new Date(utcDateTime + 'Z').getTime() / 1000);
+}
+
+function formatCurrentUtcTime() {
+    const now = new Date();
+    return now.toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
 }
 
 function runStatus(status, conclusion) {
@@ -233,6 +250,29 @@ function PageScriptRow({ entry, index, onChange, onRemove }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// UtcClock — live updating clock
+// ─────────────────────────────────────────────────────────────────────────────
+
+function UtcClock() {
+    const [time, setTime] = useState(() => formatCurrentUtcTime());
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setTime(formatCurrentUtcTime());
+        }, 1000);
+        return () => clearInterval(interval);
+    }, []);
+
+    return (
+        <div style={{ backgroundColor: '#f5f5f5', padding: '12px', borderRadius: '4px', marginBottom: '16px' }}>
+            <p style={{ margin: '0', fontSize: '0.9em', color: '#333' }}>
+                <strong>Current UTC time:</strong> <code>{time}</code>
+            </p>
+        </div>
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // DeploymentHistory — GitHub runs table + local WP dispatch log
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -256,12 +296,15 @@ function Countdown({ targetIso }) {
     return <span className="codesm-decoupled-bundle-countdown">in {label}</span>;
 }
 
-function DeploymentHistory({ repo }) {
+function DeploymentHistory({ repo, onShowNotice }) {
     const [data, setData]           = useState(null);
     const [loading, setLoading]     = useState(false);
     const [error, setError]         = useState(null);
     const [cancelling, setCancelling]           = useState(false);
     const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+    const [clearing, setClearing]                   = useState(false);
+    const [showClearConfirm, setShowClearConfirm]   = useState(false);
+    const [clearError, setClearError]               = useState(null);
 
     const cancelBuild = async () => {
         setCancelling(true);
@@ -275,11 +318,35 @@ function DeploymentHistory({ repo }) {
         }
     };
 
-    const fetchBuilds = async () => {
+    const clearLogs = async () => {
+        setClearing(true);
+        setClearError(null);
+        try {
+            const result = await apiFetch({ url: `${restUrl}/clear-logs`, method: 'POST' });
+            if (result.success) {
+                await fetchBuilds();
+                setShowClearConfirm(false);
+                if (onShowNotice) {
+                    onShowNotice('success', 'Build logs cleared successfully.');
+                }
+            } else {
+                setClearError('Failed to clear logs.');
+            }
+        } catch (err) {
+            setClearError(err.message || 'Failed to clear logs.');
+        } finally {
+            setClearing(false);
+        }
+    };
+
+    const fetchBuilds = async (skipCache = false) => {
         setLoading(true);
         setError(null);
         try {
-            const result = await apiFetch({ url: `${restUrl}/builds` });
+            const url = skipCache
+                ? `${restUrl}/builds?_t=${Date.now()}`
+                : `${restUrl}/builds`;
+            const result = await apiFetch({ url });
             setData(result);
             if (result.error) setError(result.error);
         } catch (err) {
@@ -303,7 +370,7 @@ function DeploymentHistory({ repo }) {
                     Live status from GitHub Actions. The Source column shows whether the
                     build was triggered from WordPress or by a code push.
                 </p>
-                <Button variant="secondary" onClick={fetchBuilds} isBusy={loading} disabled={loading}>
+                <Button variant="secondary" onClick={() => fetchBuilds(true)} isBusy={loading} disabled={loading}>
                     {loading ? 'Refreshing…' : 'Refresh'}
                 </Button>
             </div>
@@ -426,41 +493,86 @@ function DeploymentHistory({ repo }) {
             )}
 
             {localLog.length > 0 && (
-                <details className="codesm-decoupled-bundle-local-log">
-                    <summary>WP Dispatch Log ({localLog.length} entries)</summary>
-                    <table className="codesm-decoupled-bundle-log-table">
-                        <thead>
-                            <tr>
-                                <th>Dispatched</th>
-                                <th>Workflow</th>
-                                <th>Trigger</th>
-                                <th>Result</th>
-                                <th>Error</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {localLog.map((entry, idx) => (
-                                <tr key={idx} className={entry.dispatch_ok ? '' : 'codesm-decoupled-bundle-log-row--failed'}>
-                                    <td className="codesm-decoupled-bundle-timestamp">
-                                        {formatDate(entry.dispatched_at_utc || entry.dispatched_at)}
-                                    </td>
-                                    <td>{entry.workflow_id || '—'}</td>
-                                    <td>
-                                        <span className={`codesm-decoupled-bundle-trigger-badge codesm-decoupled-bundle-trigger--${entry.trigger}`}>
-                                            {entry.trigger === 'manual' ? 'Manual' : 'Auto'}
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <span className={entry.dispatch_ok ? 'codesm-decoupled-bundle-ok' : 'codesm-decoupled-bundle-fail'}>
-                                            {entry.dispatch_ok ? 'Dispatched' : 'Failed'}
-                                        </span>
-                                    </td>
-                                    <td className="codesm-decoupled-bundle-log-error">{entry.error || '—'}</td>
+                <>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', marginTop: '24px' }}>
+                        <h4 style={{ margin: '0' }}>WP Dispatch Log ({localLog.length} entries)</h4>
+                        <Button
+                            variant="secondary"
+                            isDestructive
+                            isBusy={clearing}
+                            disabled={clearing}
+                            onClick={() => setShowClearConfirm(true)}
+                        >
+                            {clearing ? 'Clearing…' : 'Clear Logs'}
+                        </Button>
+                    </div>
+                    <details className="codesm-decoupled-bundle-local-log">
+                        <summary>View Log Entries</summary>
+                        <table className="codesm-decoupled-bundle-log-table">
+                            <thead>
+                                <tr>
+                                    <th>Dispatched</th>
+                                    <th>Workflow</th>
+                                    <th>Trigger</th>
+                                    <th>Result</th>
+                                    <th>Error</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </details>
+                            </thead>
+                            <tbody>
+                                {localLog.map((entry, idx) => (
+                                    <tr key={idx} className={entry.dispatch_ok ? '' : 'codesm-decoupled-bundle-log-row--failed'}>
+                                        <td className="codesm-decoupled-bundle-timestamp">
+                                            {formatDate(entry.dispatched_at_utc || entry.dispatched_at)}
+                                        </td>
+                                        <td>{entry.workflow_id || '—'}</td>
+                                        <td>
+                                            <span className={`codesm-decoupled-bundle-trigger-badge codesm-decoupled-bundle-trigger--${entry.trigger}`}>
+                                                {entry.trigger === 'manual' ? 'WP Manual' : entry.trigger === 'abilities' ? 'Abilities API' : 'WP Auto'}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <span className={entry.dispatch_ok ? 'codesm-decoupled-bundle-ok' : 'codesm-decoupled-bundle-fail'}>
+                                                {entry.dispatch_ok ? 'Dispatched' : 'Failed'}
+                                            </span>
+                                        </td>
+                                        <td className="codesm-decoupled-bundle-log-error">{entry.error || '—'}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </details>
+
+                    {showClearConfirm && (
+                        <Modal
+                            title="Clear Build Logs"
+                            onRequestClose={() => setShowClearConfirm(false)}
+                            size="small"
+                        >
+                            <p>Are you sure you want to permanently delete all {localLog.length} build log entries? This cannot be undone.</p>
+                            <p style={{ fontSize: '0.9em', color: '#666', fontStyle: 'italic' }}>
+                              Once cleared, you will lose the local WordPress record of which builds were triggered manually (WP Manual) or automatically (WP Auto). GitHub Actions history will still show code pushes and workflow dispatches.
+                            </p>
+                            {clearError && (
+                                <Notice status="error" isDismissible onDismiss={() => setClearError(null)}>
+                                    {clearError}
+                                </Notice>
+                            )}
+                            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '16px' }}>
+                                <Button variant="secondary" onClick={() => setShowClearConfirm(false)} disabled={clearing}>
+                                    Cancel
+                                </Button>
+                                <Button
+                                    variant="primary"
+                                    isDestructive
+                                    isBusy={clearing}
+                                    onClick={() => clearLogs()}
+                                >
+                                    Yes, Clear Logs
+                                </Button>
+                            </div>
+                        </Modal>
+                    )}
+                </>
             )}
         </div>
     );
@@ -518,6 +630,7 @@ function App() {
     const removeSocialEntry = (i)        => setSettings(p => ({ ...p, social: (p.social || []).filter((_, idx) => idx !== i) }));
     const setGtm     = (key) => (val) => setSettings(p => ({ ...p, gtm:     { ...p.gtm,     [key]: val } }));
     const setBuild   = (key) => (val) => setSettings(p => ({ ...p, build:   { ...p.build,   [key]: val } }));
+    const setMaintenance = (key) => (val) => setSettings(p => ({ ...p, maintenance: { ...p.maintenance, [key]: val } }));
 
     // ── Phone list ─────────────────────────────────────────────────────────
 
@@ -598,7 +711,7 @@ function App() {
 
     // Auto-load GitHub data when the Build tab opens and credentials are present.
     useEffect(() => {
-        if (activeTab === 'build' && bu.github_token && bu.github_repo && !ghLoaded && !ghLoading) {
+        if (activeTab === 'build' && build.github_token && build.github_repo && !ghLoaded && !ghLoading) {
             loadGithubData();
         }
     }, [activeTab]);
@@ -655,16 +768,17 @@ function App() {
 
     // ── Derived values ─────────────────────────────────────────────────────
 
-    const si = settings.site        || {};
-    const co = settings.contact     || {};
-    const gt = settings.gtm         || {};
-    const sc = settings.scripts     || {};
-    const bu = settings.build       || {};
+    const site = settings.site        || {};
+    const contact = settings.contact     || {};
+    const gtm = settings.gtm         || {};
+    const scripts = settings.scripts     || {};
+    const build = settings.build       || {};
+    const maintenance = settings.maintenance || {};
 
-    const phones    = Array.isArray(co.phones)    ? co.phones    : [];
-    const emails    = Array.isArray(co.emails)    ? co.emails    : [];
-    const locations = Array.isArray(co.locations) ? co.locations : [];
-    const autoTargets = Array.isArray(bu.auto_targets) ? bu.auto_targets : [];
+    const phones    = Array.isArray(contact.phones)    ? contact.phones    : [];
+    const emails    = Array.isArray(contact.emails)    ? contact.emails    : [];
+    const locations = Array.isArray(contact.locations) ? contact.locations : [];
+    const autoTargets = Array.isArray(build.auto_targets) ? build.auto_targets : [];
     const socialEntries = Array.isArray(settings.social) ? settings.social : [];
 
     const branchOptions = branches.length > 0
@@ -713,7 +827,7 @@ function App() {
                                 <div className="codesm-decoupled-bundle-field">
                                     <TextControl
                                         label="Site Title"
-                                        value={si.title || ''}
+                                        value={site.title || ''}
                                         onChange={setSite('title')}
                                         __nextHasNoMarginBottom
                                     />
@@ -721,7 +835,7 @@ function App() {
                                 <div className="codesm-decoupled-bundle-field">
                                     <TextareaControl
                                         label="Site Description"
-                                        value={si.description || ''}
+                                        value={site.description || ''}
                                         onChange={setSite('description')}
                                         rows={3}
                                         __nextHasNoMarginBottom
@@ -739,7 +853,7 @@ function App() {
                                     <div className="codesm-decoupled-bundle-field codesm-decoupled-bundle-field--grow">
                                         <TextControl
                                             label="Title Format"
-                                            value={si.title_format || '%title% %sep% %site%'}
+                                            value={site.title_format || '%title% %sep% %site%'}
                                             onChange={setSite('title_format')}
                                             placeholder="%title% %sep% %site%"
                                             __nextHasNoMarginBottom
@@ -748,7 +862,7 @@ function App() {
                                     <div className="codesm-decoupled-bundle-field codesm-decoupled-bundle-field--narrow">
                                         <SelectControl
                                             label="Separator"
-                                            value={si.title_separator || '|'}
+                                            value={site.title_separator || '|'}
                                             options={[
                                                 { label: '| (Pipe)',    value: '|' },
                                                 { label: '- (Hyphen)',  value: '-' },
@@ -765,10 +879,10 @@ function App() {
                                 </div>
                                 <p className="codesm-decoupled-bundle-hint">
                                     Preview: <strong>{
-                                        (si.title_format || '%title% %sep% %site%')
+                                        (site.title_format || '%title% %sep% %site%')
                                             .replace('%title%', 'About Us')
-                                            .replace('%sep%', si.title_separator || '|')
-                                            .replace('%site%', si.title || 'My Site')
+                                            .replace('%sep%', site.title_separator || '|')
+                                            .replace('%site%', site.title || 'My Site')
                                     }</strong>
                                 </p>
                             </div>
@@ -888,7 +1002,7 @@ function App() {
                                 <div className="codesm-decoupled-bundle-field codesm-decoupled-bundle-field--narrow">
                                     <TextControl
                                         label="GTM Container ID"
-                                        value={gt.id || ''}
+                                        value={gtm.id || ''}
                                         onChange={setGtm('id')}
                                         placeholder="GTM-XXXXXXX"
                                         help="Your Astro layout reads this from the REST API and injects the GTM snippets."
@@ -906,7 +1020,7 @@ function App() {
                                     <TextareaControl
                                         label="Global JSON-LD"
                                         help="Sitewide structured data — without wrapping <script> tags. Applied on every page."
-                                        value={sc.json_ld || ''}
+                                        value={scripts.json_ld || ''}
                                         onChange={(val) => setSettings(p => ({ ...p, scripts: { ...p.scripts, json_ld: val } }))}
                                         rows={6}
                                         className="codesm-decoupled-bundle-code-field"
@@ -914,7 +1028,7 @@ function App() {
                                     />
                                 </div>
                                 <ScriptFields
-                                    values={{ header: sc.header || '', body_start: sc.body_start || '', body_end: sc.body_end || '' }}
+                                    values={{ header: scripts.header || '', body_start: scripts.body_start || '', body_end: scripts.body_end || '' }}
                                     onChange={(updated) => setSettings(p => ({ ...p, scripts: { ...p.scripts, ...updated } }))}
                                 />
                             </div>
@@ -924,7 +1038,7 @@ function App() {
                                 <p className="codesm-decoupled-bundle-panel-desc">
                                     Scripts and JSON-LD injected only on specific pages. Use exact paths (<code>/about</code>) or wildcard suffixes (<code>/blog/*</code>).
                                 </p>
-                                {(sc.pages || []).map((entry, idx) => (
+                                {(scripts.pages || []).map((entry, idx) => (
                                     <PageScriptRow
                                         key={idx}
                                         entry={entry}
@@ -952,7 +1066,7 @@ function App() {
                                     <div className="codesm-decoupled-bundle-field codesm-decoupled-bundle-field--grow">
                                         <TextControl
                                             label="Repository"
-                                            value={bu.github_repo || ''}
+                                            value={build.github_repo || ''}
                                             onChange={setBuild('github_repo')}
                                             placeholder="owner/repository"
                                             help="Format: owner/repo"
@@ -962,7 +1076,7 @@ function App() {
                                     <div className="codesm-decoupled-bundle-field codesm-decoupled-bundle-field--grow">
                                         <TextControl
                                             label="Personal Access Token"
-                                            value={bu.github_token || ''}
+                                            value={build.github_token || ''}
                                             onChange={setBuild('github_token')}
                                             type="password"
                                             placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
@@ -976,7 +1090,7 @@ function App() {
                                         variant="secondary"
                                         onClick={loadGithubData}
                                         isBusy={ghLoading}
-                                        disabled={ghLoading || !bu.github_repo || !bu.github_token}
+                                        disabled={ghLoading || !build.github_repo || !build.github_token}
                                     >
                                         {ghLoaded ? 'Reload Workflows & Branches' : 'Load Workflows & Branches'}
                                     </Button>
@@ -991,19 +1105,19 @@ function App() {
                                     <ToggleControl
                                         label="Enable auto-build on content changes"
                                         help="Schedules a rebuild whenever a post/page is published or trashed. Uses a debounce window to batch rapid edits."
-                                        checked={!!bu.auto_enabled}
+                                        checked={!!build.auto_enabled}
                                         onChange={setBuild('auto_enabled')}
                                         __nextHasNoMarginBottom
                                     />
                                 </div>
 
-                                {bu.auto_enabled && (
+                                {build.auto_enabled && (
                                     <>
                                         <div className="codesm-decoupled-bundle-field-row">
                                             <div className="codesm-decoupled-bundle-field codesm-decoupled-bundle-field--narrow">
                                                 <TextControl
                                                     label="Debounce delay (minutes)"
-                                                    value={String(bu.debounce_minutes ?? 5)}
+                                                    value={String(build.debounce_minutes ?? 5)}
                                                     onChange={(v) => setBuild('debounce_minutes')(Math.max(1, parseInt(v, 10) || 5))}
                                                     type="number"
                                                     min="1"
@@ -1135,10 +1249,71 @@ function App() {
                         </div>
                     )}
 
+                    {/* ════════════════ MAINTENANCE ════════════════ */}
+                    {activeTab === 'maintenance' && (
+                        <div className="codesm-decoupled-bundle-tab-content">
+                            <div className="codesm-decoupled-bundle-section">
+                                <h3 className="codesm-decoupled-bundle-section__title">Maintenance Mode</h3>
+                                <p className="codesm-decoupled-bundle-panel-desc">
+                                    Enable maintenance mode to display a maintenance page during site updates. <strong>All times are in UTC</strong>.
+                                </p>
+
+                                <UtcClock />
+
+                                <div className="codesm-decoupled-bundle-field">
+                                    <ToggleControl
+                                        label="Enable maintenance mode"
+                                        checked={!!maintenance.enabled}
+                                        onChange={setMaintenance('enabled')}
+                                        __nextHasNoMarginBottom
+                                    />
+                                </div>
+
+                                {maintenance.enabled && (
+                                    <>
+                                        <div className="codesm-decoupled-bundle-field-row">
+                                            <div className="codesm-decoupled-bundle-field codesm-decoupled-bundle-field--grow">
+                                                <TextControl
+                                                    label="Start Time (UTC)"
+                                                    type="datetime-local"
+                                                    value={unixToUtcDateTime(maintenance.from || 0)}
+                                                    onChange={(v) => setMaintenance('from')(utcDateTimeToUnix(v))}
+                                                    help="Leave empty for immediate activation"
+                                                    __nextHasNoMarginBottom
+                                                />
+                                            </div>
+                                            <div className="codesm-decoupled-bundle-field codesm-decoupled-bundle-field--grow">
+                                                <TextControl
+                                                    label="End Time (UTC)"
+                                                    type="datetime-local"
+                                                    value={unixToUtcDateTime(maintenance.to || 0)}
+                                                    onChange={(v) => setMaintenance('to')(utcDateTimeToUnix(v))}
+                                                    help="Leave empty for open-ended maintenance"
+                                                    __nextHasNoMarginBottom
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="codesm-decoupled-bundle-field">
+                                            <p style={{ fontSize: '0.9em', color: '#666', margin: '8px 0' }}>
+                                                <strong>Status:</strong> {
+                                                    !maintenance.from ? 'Active immediately' :
+                                                    new Date().getTime() / 1000 < maintenance.from ? 'Scheduled (not yet active)' :
+                                                    !maintenance.to || new Date().getTime() / 1000 <= maintenance.to ? 'Currently active' :
+                                                    'Expired'
+                                                }
+                                            </p>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
                     {/* ════════════════ DEPLOYMENTS ════════════════ */}
                     {activeTab === 'deployments' && (
                         <div className="codesm-decoupled-bundle-tab-content">
-                            <DeploymentHistory repo={bu.github_repo || ''} />
+                            <DeploymentHistory repo={build.github_repo || ''} onShowNotice={showNotice} />
                         </div>
                     )}
 

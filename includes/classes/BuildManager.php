@@ -43,7 +43,7 @@ class BuildManager {
      *
      * @var int
      */
-    const MAX_LOG_ENTRIES = 20;
+    const MAX_LOG_ENTRIES = 10;
 
     /**
      * Transient key prefix for per-workflow manual trigger rate limiting.
@@ -60,6 +60,20 @@ class BuildManager {
      * @var int
      */
     const RATE_LIMIT_SECONDS = 60;
+
+    /**
+     * Cache duration for workflow and branch data (1 minute).
+     *
+     * @var int
+     */
+    const GITHUB_DATA_CACHE_DURATION = 60;
+
+    /**
+     * Merge window for matching log entries (60 seconds).
+     *
+     * @var int
+     */
+    const LOG_MERGE_WINDOW = 60;
 
     // -------------------------------------------------------------------------
     // Initialisation
@@ -206,6 +220,7 @@ class BuildManager {
      *
      * If an event is already scheduled, it is cancelled first so that rapid
      * successive changes only result in a single burst of builds at the end.
+     * Uses a transient lock to prevent race conditions during scheduling.
      *
      * @param  array<string, mixed> $settings Full plugin settings array.
      * @return void
@@ -213,9 +228,33 @@ class BuildManager {
     private static function schedule_debounced_build(array $settings): void {
         $delay = max(60, (int) ($settings['build']['debounce_minutes'] ?? 5) * 60);
 
-        self::cancel_scheduled_build();
+        // Prevent race conditions: use a lock during scheduling
+        $lock_key = self::CRON_HOOK . '_lock';
+        if (get_transient($lock_key)) {
+            return; // Another process is already scheduling
+        }
+        set_transient($lock_key, 1, 5);
 
+        self::cancel_scheduled_build();
         wp_schedule_single_event(time() + $delay, self::CRON_HOOK);
+
+        delete_transient($lock_key);
+    }
+
+    /**
+     * Redacts sensitive data (tokens, credentials) from error messages for logging.
+     *
+     * @param  string $message Error message to sanitize.
+     * @return string Redacted message safe for logs.
+     */
+    private static function redact_sensitive_data(string $message): string {
+        // Redact Bearer tokens
+        $message = preg_replace('/Bearer\s+[a-zA-Z0-9_\-]+/i', 'Bearer [REDACTED]', $message);
+        // Redact PATs in URLs or parameters
+        $message = preg_replace('/(?:token|pat)[\s=:]+[a-zA-Z0-9_\-]+/i', '[TOKEN_REDACTED]', $message);
+        // Redact email addresses (could indicate user identity)
+        $message = preg_replace('/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/', '[EMAIL_REDACTED]', $message);
+        return $message;
     }
 
     // -------------------------------------------------------------------------
@@ -228,9 +267,10 @@ class BuildManager {
      *
      * @param  string $workflow_id Numeric GitHub workflow ID (unsanitized input accepted).
      * @param  string $ref         Branch or tag to dispatch on.
+     * @param  bool   $abilities    Whether this trigger came from the Abilities API.
      * @return array{success: bool, message: string, workflow_id: string, timestamp: string, error_code: string|null}
      */
-    public static function trigger_manual(string $workflow_id, string $ref = ''): array {
+    public static function trigger_manual(string $workflow_id, string $ref = '', bool $abilities = false): array {
         $workflow_id = sanitize_text_field($workflow_id);
         $ref         = sanitize_text_field($ref);
 
@@ -242,7 +282,8 @@ class BuildManager {
             ];
         }
 
-        $result = self::trigger($workflow_id, 'manual', $ref);
+        $trigger_type = $abilities ? 'abilities' : 'manual';
+        $result = self::trigger($workflow_id, $trigger_type, $ref);
 
         if (is_wp_error($result)) {
             return [
@@ -266,7 +307,7 @@ class BuildManager {
     /**
      * Dispatches a workflow_dispatch event to GitHub Actions for a specific workflow.
      *
-     * Manual triggers are rate-limited per workflow (once per RATE_LIMIT_SECONDS)
+     * Manual and abilities triggers are rate-limited per workflow (once per RATE_LIMIT_SECONDS)
      * to prevent accidental API spam. Auto triggers bypass the rate limit because
      * the cron debounce already enforces a minimum interval.
      *
@@ -274,7 +315,7 @@ class BuildManager {
      * log is updated regardless of success or failure.
      *
      * @param  string         $workflow_id  Numeric GitHub workflow ID.
-     * @param  string         $trigger      'manual' or 'auto'.
+     * @param  string         $trigger      'manual', 'abilities', or 'auto'.
      * @param  string         $ref          Branch or tag to dispatch on. Falls back to saved github_ref then 'main'.
      * @return bool|\WP_Error True on success, WP_Error with client-safe message on failure.
      */
@@ -283,9 +324,9 @@ class BuildManager {
             return new \WP_Error('invalid_workflow', __('Invalid workflow ID.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN));
         }
 
-        // Per-workflow rate limit for manual triggers
+        // Per-workflow rate limit for manual and abilities triggers
         $rl_key = self::RATE_LIMIT_PREFIX . $workflow_id;
-        if ($trigger === 'manual' && get_transient($rl_key)) {
+        if (($trigger === 'manual' || $trigger === 'abilities') && get_transient($rl_key)) {
             $error = __('A build was triggered recently for this workflow. Please wait before triggering again.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN);
             return new \WP_Error('rate_limited', $error);
         }
@@ -295,7 +336,19 @@ class BuildManager {
         $repo     = $settings['build']['github_repo']  ?? '';
         // Use caller-supplied ref, fall back to saved setting, then 'main'
         if (empty($ref)) {
-            $ref = $settings['build']['github_ref'] ?? '';
+            $ref = $settings['build']['github_ref'] ?? 'main';
+        }
+
+        // Validate ref against repository's actual branches
+        $branches = self::get_branches();
+        if (!empty($branches['branches'])) {
+            $valid_refs = array_column($branches['branches'], 'name');
+            if (!in_array($ref, $valid_refs, true)) {
+                return new \WP_Error('invalid_ref', sprintf(
+                    __('Branch "%s" does not exist in the repository.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN),
+                    esc_html($ref)
+                ));
+            }
         }
 
         if (empty($token) || empty($repo)) {
@@ -319,7 +372,8 @@ class BuildManager {
 
         if (is_wp_error($response)) {
             $internal = $response->get_error_message();
-            error_log("[CODESM Decoupled Bundle] Dispatch failed (workflow {$workflow_id}): {$internal}");
+            $sanitized = self::redact_sensitive_data($internal);
+            error_log("[CODESM Decoupled Bundle] Dispatch failed (workflow {$workflow_id}): {$sanitized}");
             $client_error = __('Could not reach GitHub. Please check your network and try again.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN);
             self::log_dispatch($workflow_id, $trigger, false, $internal);
             return new \WP_Error('request_failed', $client_error);
@@ -331,7 +385,8 @@ class BuildManager {
         if ($code !== 204) {
             $body     = json_decode(wp_remote_retrieve_body($response), true);
             $internal = $body['message'] ?? "GitHub API returned status {$code}.";
-            error_log("[CODESM Decoupled Bundle] Dispatch error (workflow {$workflow_id}): {$internal}");
+            $sanitized = self::redact_sensitive_data($internal);
+            error_log("[CODESM Decoupled Bundle] Dispatch error (workflow {$workflow_id}): {$sanitized}");
             $client_message = $code === 401 || $code === 403
                 ? __('GitHub rejected the request. Please verify your Personal Access Token.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN)
                 : sprintf(
@@ -388,7 +443,8 @@ class BuildManager {
         ]);
 
         if (is_wp_error($response)) {
-            error_log('[CODESM Decoupled Bundle] Workflow list fetch failed: ' . $response->get_error_message());
+            $sanitized = self::redact_sensitive_data($response->get_error_message());
+            error_log('[CODESM Decoupled Bundle] Workflow list fetch failed: ' . $sanitized);
             return ['workflows' => [], 'error' => __('Could not reach GitHub.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN)];
         }
 
@@ -397,7 +453,8 @@ class BuildManager {
 
         if ($code !== 200) {
             $internal = $body['message'] ?? "GitHub API returned status {$code}.";
-            error_log('[CODESM Decoupled Bundle] Workflow list error: ' . $internal);
+            $sanitized = self::redact_sensitive_data($internal);
+            error_log('[CODESM Decoupled Bundle] Workflow list error: ' . $sanitized);
             $client_error = $code === 401 || $code === 403
                 ? __('GitHub rejected the request. Please verify your Personal Access Token.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN)
                 : __('Could not load workflows. Check your GitHub settings.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN);
@@ -474,7 +531,8 @@ class BuildManager {
         ]);
 
         if (is_wp_error($response)) {
-            error_log('[CODESM Decoupled Bundle] Branches fetch failed: ' . $response->get_error_message());
+            $sanitized = self::redact_sensitive_data($response->get_error_message());
+            error_log('[CODESM Decoupled Bundle] Branches fetch failed: ' . $sanitized);
             return ['branches' => [], 'error' => __('Could not reach GitHub.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN)];
         }
 
@@ -483,7 +541,8 @@ class BuildManager {
 
         if ($code !== 200) {
             $internal = $body['message'] ?? "GitHub API returned status {$code}.";
-            error_log('[CODESM Decoupled Bundle] Branches fetch error: ' . $internal);
+            $sanitized = self::redact_sensitive_data($internal);
+            error_log('[CODESM Decoupled Bundle] Branches fetch error: ' . $sanitized);
             $client_error = $code === 401 || $code === 403
                 ? __('GitHub rejected the request. Please verify your Personal Access Token.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN)
                 : __('Could not load branches. Check your GitHub settings.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN);
@@ -538,7 +597,7 @@ class BuildManager {
             return ['runs' => [], 'local_log' => $local_log, 'error' => __('GitHub is not configured.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN), 'next_scheduled' => $next_scheduled, 'next_scheduled_targets' => $next_scheduled_targets];
         }
 
-        $url      = "https://api.github.com/repos/{$repo}/actions/runs?per_page=15";
+        $url      = "https://api.github.com/repos/{$repo}/actions/runs?per_page=10";
         $response = wp_remote_get($url, [
             'headers' => [
                 'Authorization'        => "Bearer {$token}",
@@ -550,7 +609,8 @@ class BuildManager {
         ]);
 
         if (is_wp_error($response)) {
-            error_log('[CODESM Decoupled Bundle] Runs fetch failed: ' . $response->get_error_message());
+            $sanitized = self::redact_sensitive_data($response->get_error_message());
+            error_log('[CODESM Decoupled Bundle] Runs fetch failed: ' . $sanitized);
             return ['runs' => [], 'local_log' => $local_log, 'error' => __('Could not reach GitHub.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN), 'next_scheduled' => $next_scheduled, 'next_scheduled_targets' => $next_scheduled_targets];
         }
 
@@ -559,7 +619,7 @@ class BuildManager {
 
         if ($code !== 200 || empty($body['workflow_runs'])) {
             $internal = $body['message'] ?? "GitHub API returned status {$code}.";
-            error_log('[CODESM Decoupled Bundle] Runs fetch error: ' . $internal);
+            error_log('[CODESM Decoupled Bundle] Runs fetch error: ' . self::redact_sensitive_data($internal));
             $client_error = $code === 401 || $code === 403
                 ? __('GitHub rejected the request. Please verify your Personal Access Token.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN)
                 : __('Could not load deployment history. Check your GitHub settings.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN);
@@ -617,6 +677,20 @@ class BuildManager {
      */
     public static function get_log(): array {
         return get_option(self::BUILDS_LOG_KEY, []);
+    }
+
+    /**
+     * Clears the local dispatch log.
+     *
+     * @return bool True if cleared, false if already empty.
+     */
+    public static function clear_logs(): bool {
+        $log = self::get_log();
+        if (empty($log)) {
+            return false;
+        }
+        delete_option(self::BUILDS_LOG_KEY);
+        return true;
     }
 
     // -------------------------------------------------------------------------

@@ -34,6 +34,48 @@ class RestApi {
      */
     const NAMESPACE = 'codesm-decoupled-bundle/v1';
 
+    /**
+     * Transient key prefix for API rate limiting (per user, per minute).
+     *
+     * @var string
+     */
+    const RATE_LIMIT_TRANSIENT_PREFIX = 'codesm_decoupled_bundle_api_rl_';
+
+    /**
+     * Transient key prefix for branches cache (per user).
+     *
+     * @var string
+     */
+    const BRANCHES_CACHE_PREFIX = 'codesm_decoupled_bundle_branches_';
+
+    /**
+     * Transient key prefix for workflows cache (per user).
+     *
+     * @var string
+     */
+    const WORKFLOWS_CACHE_PREFIX = 'codesm_decoupled_bundle_workflows_';
+
+    /**
+     * Transient key prefix for builds cache (per user).
+     *
+     * @var string
+     */
+    const BUILDS_CACHE_PREFIX = 'codesm_decoupled_bundle_builds_';
+
+    /**
+     * Cache duration for GitHub data (1 minute).
+     *
+     * @var int
+     */
+    const GITHUB_DATA_CACHE_DURATION = 60;
+
+    /**
+     * API rate limit: maximum requests per minute per user.
+     *
+     * @var int
+     */
+    const RATE_LIMIT_PER_MINUTE = 30;
+
     // -------------------------------------------------------------------------
     // Initialisation
     // -------------------------------------------------------------------------
@@ -95,6 +137,12 @@ class RestApi {
             'callback'            => [self::class, 'handle_cancel_build'],
             'permission_callback' => [self::class, 'require_admin'],
         ]);
+
+        register_rest_route(self::NAMESPACE, '/clear-logs', [
+            'methods'             => \WP_REST_Server::CREATABLE,
+            'callback'            => [self::class, 'handle_clear_logs'],
+            'permission_callback' => [self::class, 'require_admin'],
+        ]);
     }
 
     // -------------------------------------------------------------------------
@@ -104,10 +152,39 @@ class RestApi {
     /**
      * Permission callback for admin-only routes.
      *
-     * @return bool True if the current user has the manage_options capability.
+     * Checks both capability and nonce (CSRF protection).
+     * WordPress automatically includes X-WP-Nonce header from wp_localize_script.
+     *
+     * @return bool True if the current user has manage_options and nonce is valid.
      */
     public static function require_admin(): bool {
-        return current_user_can('manage_options');
+        if (!current_user_can('manage_options')) {
+            return false;
+        }
+
+        $nonce = sanitize_text_field($_SERVER['HTTP_X_WP_NONCE'] ?? '');
+        return wp_verify_nonce($nonce, 'wp_rest') !== false;
+    }
+
+    /**
+     * Checks if the current user has exceeded the API rate limit.
+     *
+     * Rate limit: 30 requests per minute per user.
+     *
+     * @return bool True if within limit, false if exceeded.
+     */
+    private static function check_rate_limit(): bool {
+        $user_id = get_current_user_id();
+        $minute  = (int) (time() / 60);
+        $key     = "codesm_decoupled_bundle_api_rl_{$user_id}_{$minute}";
+        $count   = (int) get_transient($key);
+
+        if ($count >= 30) {
+            return false;
+        }
+
+        set_transient($key, $count + 1, 61);
+        return true;
     }
 
     // -------------------------------------------------------------------------
@@ -182,12 +259,25 @@ class RestApi {
      *
      * Returns branch names with the repo's default branch flagged so the UI can
      * pre-select it. Used to populate the branch dropdown for workflow dispatch.
+     * Results are cached for 10 minutes to avoid excessive API calls.
      *
      * @param  \WP_REST_Request $_request Incoming REST request.
      * @return \WP_REST_Response          { branches[], error: string|null }
      */
     public static function handle_get_branches(\WP_REST_Request $_request): \WP_REST_Response {
-        return new \WP_REST_Response(BuildManager::get_branches(), 200);
+        if (!self::check_rate_limit()) {
+            return new \WP_REST_Response(['error' => __('API rate limit exceeded. Maximum 30 requests per minute.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN)], 429);
+        }
+
+        $cache_key = 'codesm_decoupled_bundle_branches_' . get_current_user_id();
+        $cached = get_transient($cache_key);
+        if (is_array($cached) && isset($cached['branches'])) {
+            return new \WP_REST_Response($cached, 200);
+        }
+
+        $data = BuildManager::get_branches();
+        set_transient($cache_key, $data, 600);
+        return new \WP_REST_Response($data, 200);
     }
 
     /**
@@ -195,12 +285,25 @@ class RestApi {
      *
      * Fetches the live workflow list from GitHub and merges it with the saved
      * auto/manual enabled state so the UI can render toggles immediately.
+     * Results are cached for 10 minutes to avoid excessive API calls.
      *
      * @param  \WP_REST_Request $_request Incoming REST request.
      * @return \WP_REST_Response          { workflows[], error: string|null }
      */
     public static function handle_get_workflows(\WP_REST_Request $_request): \WP_REST_Response {
-        return new \WP_REST_Response(BuildManager::get_workflows(), 200);
+        if (!self::check_rate_limit()) {
+            return new \WP_REST_Response(['error' => __('API rate limit exceeded. Maximum 30 requests per minute.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN)], 429);
+        }
+
+        $cache_key = 'codesm_decoupled_bundle_workflows_' . get_current_user_id();
+        $cached = get_transient($cache_key);
+        if (is_array($cached) && isset($cached['workflows'])) {
+            return new \WP_REST_Response($cached, 200);
+        }
+
+        $data = BuildManager::get_workflows();
+        set_transient($cache_key, $data, 600);
+        return new \WP_REST_Response($data, 200);
     }
 
     /**
@@ -221,10 +324,48 @@ class RestApi {
      * them with our local dispatch log so the UI can display source (WP Manual,
      * WP Auto, Code Push, etc.), status, duration, and a direct link to GitHub.
      *
+     * Results are cached for 5 minutes to avoid hammering the GitHub API.
+     *
      * @param  \WP_REST_Request $_request Incoming REST request.
      * @return \WP_REST_Response          { runs[], local_log[], error: string|null }
      */
-    public static function handle_get_builds(\WP_REST_Request $_request): \WP_REST_Response {
-        return new \WP_REST_Response(BuildManager::get_builds(), 200);
+    public static function handle_get_builds(\WP_REST_Request $request): \WP_REST_Response {
+        if (!self::check_rate_limit()) {
+            return new \WP_REST_Response(['error' => __('API rate limit exceeded. Maximum 30 requests per minute.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN)], 429);
+        }
+
+        $skip_cache = !empty($request->get_param('_t'));
+        $cache_key = 'codesm_decoupled_bundle_builds_' . get_current_user_id();
+
+        if (!$skip_cache) {
+            $cached = get_transient($cache_key);
+            if (is_array($cached) && isset($cached['runs'])) {
+                return new \WP_REST_Response($cached, 200);
+            }
+        }
+
+        $data = BuildManager::get_builds();
+        set_transient($cache_key, $data, 60);
+        return new \WP_REST_Response($data, 200);
+    }
+
+    /**
+     * POST /clear-logs — Admin endpoint to clear the local dispatch log.
+     *
+     * @param  \WP_REST_Request $_request Incoming REST request.
+     * @return \WP_REST_Response          { success: bool, cleared: bool }
+     */
+    public static function handle_clear_logs(\WP_REST_Request $_request): \WP_REST_Response {
+        $cleared = BuildManager::clear_logs();
+        wp_cache_flush();
+
+        // Invalidate the builds cache for all users so fresh data is fetched
+        global $wpdb;
+        $wpdb->query($wpdb->prepare(
+            "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
+            'codesm_decoupled_bundle_builds_%'
+        ));
+
+        return new \WP_REST_Response(['success' => true, 'cleared' => $cleared], 200);
     }
 }

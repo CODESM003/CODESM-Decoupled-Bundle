@@ -31,6 +31,7 @@ class Core {
      * @return void
      */
     public static function init(): void {
+        GitHubUpdater::init();
         BuildManager::init();
         RestApi::init();
         Admin::init();
