@@ -23,6 +23,15 @@ Since the frontend is Astro (fully static), WordPress cannot inject scripts at r
 
 ---
 
+## Requirements
+
+- WordPress **6.9 or later**
+- PHP **8.0 or later**
+
+The Abilities API integration requires WordPress 6.9+. The plugin loads cleanly on older versions — Abilities registration is silently skipped if the API is not available.
+
+---
+
 ## Installation
 
 1. Upload the `codesm-decoupled-bundle` folder to `/wp-content/plugins/`
@@ -355,6 +364,85 @@ Returns the 15 most recent workflow runs across all workflows in the repo, merge
   "error": null
 }
 ```
+
+---
+
+## Abilities API
+
+Requires WordPress 6.9+. The plugin registers a `codesm-decoupled-bundle` ability category and five abilities that expose the same operations as the REST API in a machine-readable, discoverable format — intended for AI agents and automation tools.
+
+| Ability slug | Annotation | Auth | Description |
+|---|---|---|---|
+| `codesm-decoupled-bundle/get-settings` | `readonly` | Public | Returns the public site settings |
+| `codesm-decoupled-bundle/save-settings` | `idempotent` | `manage_options` | Saves the full settings payload including build configuration |
+| `codesm-decoupled-bundle/trigger-build` | — | `manage_options` | Dispatches a GitHub Actions workflow by ID and branch |
+| `codesm-decoupled-bundle/get-builds` | `readonly` | `manage_options` | Returns GitHub workflow runs merged with the local dispatch log |
+| `codesm-decoupled-bundle/cancel-build` | `destructive` | `manage_options` | Cancels the pending debounced auto-build cron event |
+
+Each ability declares full JSON Schema definitions for its inputs and outputs and is marked `show_in_rest: true` so it appears in the WordPress REST discovery index. The `trigger-build` ability shares its validation and dispatch logic with the REST route via `BuildManager::trigger_manual()` — no duplicated code between the two interfaces.
+
+### Discovery
+
+List all abilities (requires authentication):
+
+```bash
+curl -u "username:app-password" \
+  "https://example.com/wp-json/wp-abilities/v1/abilities?category=codesm-decoupled-bundle"
+```
+
+Authentication options:
+- **Browser / WP admin** — `wp.apiFetch({ path: '/wp-abilities/v1/abilities?category=codesm-decoupled-bundle' }).then(console.log)` in the browser console on any admin page
+- **External** — [Application Password](https://make.wordpress.org/core/2020/11/05/application-passwords-integration-guide/) via HTTP Basic Auth. Requires the `Authorization` header to reach PHP — add `RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]` to `.htaccess` if it doesn't work out of the box.
+
+### Executing abilities
+
+The `/run` suffix executes an ability. The HTTP method is determined by the ability's annotation:
+
+**`readonly` → GET**
+
+```bash
+curl -u "username:app-password" \
+  "https://example.com/wp-json/wp-abilities/v1/abilities/codesm-decoupled-bundle/get-settings/run"
+
+curl -u "username:app-password" \
+  "https://example.com/wp-json/wp-abilities/v1/abilities/codesm-decoupled-bundle/get-builds/run"
+```
+
+**No annotation → POST** (pass input as JSON body)
+
+```bash
+curl -X POST -u "username:app-password" \
+  -H "Content-Type: application/json" \
+  -d '{"input": {"workflow_id": "12345678", "ref": "main"}}' \
+  "https://example.com/wp-json/wp-abilities/v1/abilities/codesm-decoupled-bundle/trigger-build/run"
+```
+
+**`destructive` → DELETE**
+
+```bash
+curl -X DELETE -u "username:app-password" \
+  "https://example.com/wp-json/wp-abilities/v1/abilities/codesm-decoupled-bundle/cancel-build/run"
+```
+
+### Executing from PHP
+
+```php
+$ability = wp_get_ability( 'codesm-decoupled-bundle/trigger-build' );
+if ( $ability ) {
+    $result = $ability->execute( [ 'workflow_id' => '12345678', 'ref' => 'main' ] );
+    if ( ! is_wp_error( $result ) ) {
+        // $result['success'], $result['timestamp'], etc.
+    }
+}
+```
+
+### When to use Abilities vs REST routes
+
+Use the **existing REST routes** (`/wp-json/codesm-decoupled-bundle/v1/...`) for your own code, scripts, and the Astro build — they are simpler to call directly.
+
+Use the **Abilities API** when the caller has no prior knowledge of this plugin:
+- An AI agent discovering and invoking site capabilities autonomously
+- A plugin that wants to optionally integrate without a hard dependency — it calls `wp_get_ability()` and does nothing if the ability isn't present
 
 ---
 
@@ -735,11 +823,12 @@ codesm-decoupled-bundle/
 │   └── deploy-to-sevalla.yml          Sevalla static site deploy template (build runs on Sevalla)
 ├── includes/
 │   └── classes/
-│       ├── Core.php                   Boots Admin, RestApi, BuildManager
+│       ├── Core.php                   Boots Admin, RestApi, BuildManager, Abilities
 │       ├── Settings.php               Option read/write and sanitization
 │       ├── BuildManager.php           GitHub dispatch, cron debounce, build log
 │       ├── RestApi.php                REST route registration and handlers
-│       └── Admin.php                  WP admin menu page and script enqueue
+│       ├── Admin.php                  WP admin menu page and script enqueue
+│       └── Abilities.php              WordPress Abilities API registration (WP 6.9+)
 └── src/
     ├── index.js                        React admin app (compiled to build/)
     └── styles.scss                     Admin styles

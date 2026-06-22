@@ -34,5 +34,6 @@ class Core {
         BuildManager::init();
         RestApi::init();
         Admin::init();
+        Abilities::init();
     }
 }

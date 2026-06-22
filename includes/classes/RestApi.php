@@ -160,35 +160,21 @@ class RestApi {
      * @return \WP_REST_Response         Success flag, message, and timestamp.
      */
     public static function handle_trigger_build(\WP_REST_Request $request): \WP_REST_Response {
-        $workflow_id = sanitize_text_field((string) ($request->get_param('workflow_id') ?? ''));
-        $ref         = sanitize_text_field((string) ($request->get_param('ref')         ?? ''));
+        $result = BuildManager::trigger_manual(
+            (string) ($request->get_param('workflow_id') ?? ''),
+            (string) ($request->get_param('ref')         ?? '')
+        );
 
-        if (empty($workflow_id) || !preg_match('/^\d+$/', $workflow_id)) {
-            return new \WP_REST_Response([
-                'success' => false,
-                'message' => __('A valid workflow_id is required.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN),
-            ], 400);
+        if (!$result['success']) {
+            $status = match ($result['error_code'] ?? '') {
+                'invalid_workflow' => 400,
+                'rate_limited'     => 429,
+                default            => 500,
+            };
+            return new \WP_REST_Response(['success' => false, 'message' => $result['message']], $status);
         }
 
-        $result = BuildManager::trigger($workflow_id, 'manual', $ref);
-
-        if (is_wp_error($result)) {
-            $status = $result->get_error_code() === 'rate_limited' ? 429 : 500;
-            return new \WP_REST_Response([
-                'success' => false,
-                'message' => $result->get_error_message(),
-            ], $status);
-        }
-
-        $last_log  = BuildManager::get_log();
-        $timestamp = $last_log[0]['dispatched_at'] ?? current_time('mysql');
-
-        return new \WP_REST_Response([
-            'success'     => true,
-            'message'     => __('Build triggered successfully.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN),
-            'timestamp'   => $timestamp,
-            'workflow_id' => $workflow_id,
-        ], 200);
+        return new \WP_REST_Response($result, 200);
     }
 
     /**

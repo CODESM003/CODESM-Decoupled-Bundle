@@ -223,6 +223,47 @@ class BuildManager {
     // -------------------------------------------------------------------------
 
     /**
+     * Validates, dispatches, and returns a normalised result array for a manual
+     * trigger. Shared by RestApi and Abilities so the orchestration lives in one place.
+     *
+     * @param  string $workflow_id Numeric GitHub workflow ID (unsanitized input accepted).
+     * @param  string $ref         Branch or tag to dispatch on.
+     * @return array{success: bool, message: string, workflow_id: string, timestamp: string, error_code: string|null}
+     */
+    public static function trigger_manual(string $workflow_id, string $ref = ''): array {
+        $workflow_id = sanitize_text_field($workflow_id);
+        $ref         = sanitize_text_field($ref);
+
+        if (empty($workflow_id) || !preg_match('/^\d+$/', $workflow_id)) {
+            return [
+                'success'    => false,
+                'message'    => __('A valid workflow_id is required.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN),
+                'error_code' => 'invalid_workflow',
+            ];
+        }
+
+        $result = self::trigger($workflow_id, 'manual', $ref);
+
+        if (is_wp_error($result)) {
+            return [
+                'success'    => false,
+                'message'    => $result->get_error_message(),
+                'error_code' => $result->get_error_code(),
+            ];
+        }
+
+        $log = self::get_log();
+
+        return [
+            'success'     => true,
+            'message'     => __('Build triggered successfully.', CODESM_DECOUPLED_BUNDLE_TEXT_DOMAIN),
+            'workflow_id' => $workflow_id,
+            'timestamp'   => $log[0]['dispatched_at'] ?? current_time('mysql'),
+            'error_code'  => null,
+        ];
+    }
+
+    /**
      * Dispatches a workflow_dispatch event to GitHub Actions for a specific workflow.
      *
      * Manual triggers are rate-limited per workflow (once per RATE_LIMIT_SECONDS)

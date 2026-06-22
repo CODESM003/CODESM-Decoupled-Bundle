@@ -3,12 +3,12 @@
  * Plugin Name: CODESM Decoupled Bundle
  * Plugin URI:  https://codesm.com
  * Description: Site settings, contact info, GTM config, global/per-page script injection, and Astro build triggers for decoupled WordPress + Astro setups.
- * Version:     1.0.0
+ * Version:     0.0.1
  * Author:      Kavit Trivedi
  * Author URI:  https://codesm.com
  * Text Domain: codesm-decoupled-bundle
  * Domain Path: /languages
- * Requires at least: 6.2
+ * Requires at least: 6.9
  * Requires PHP: 8.0
  *
  * @package CODESM\DecoupledBundle
@@ -19,7 +19,7 @@ declare(strict_types=1);
 if (!defined('ABSPATH')) exit;
 
 /** @var string Plugin version. */
-define('CODESM_DECOUPLED_BUNDLE_VERSION',        '1.0.0');
+define('CODESM_DECOUPLED_BUNDLE_VERSION',        '0.0.1');
 
 /** @var string Absolute path to the plugin directory, with trailing slash. */
 define('CODESM_DECOUPLED_BUNDLE_DIRECTORY_PATH', plugin_dir_path(__FILE__));
@@ -37,6 +37,7 @@ require_once CODESM_DECOUPLED_BUNDLE_DIRECTORY_PATH . 'includes/classes/Settings
 require_once CODESM_DECOUPLED_BUNDLE_DIRECTORY_PATH . 'includes/classes/BuildManager.php';
 require_once CODESM_DECOUPLED_BUNDLE_DIRECTORY_PATH . 'includes/classes/RestApi.php';
 require_once CODESM_DECOUPLED_BUNDLE_DIRECTORY_PATH . 'includes/classes/Admin.php';
+require_once CODESM_DECOUPLED_BUNDLE_DIRECTORY_PATH . 'includes/classes/Abilities.php';
 require_once CODESM_DECOUPLED_BUNDLE_DIRECTORY_PATH . 'includes/classes/Core.php';
 
 add_action('plugins_loaded', static function (): void {
