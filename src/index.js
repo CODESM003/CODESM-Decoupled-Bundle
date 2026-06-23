@@ -1128,7 +1128,7 @@ function App() {
                                                 }
                                             }}
                                             type="password"
-                                            readOnly={!tokenEditing}
+                                            readOnly={build.github_token && !tokenEditing}
                                             placeholder={tokenEditing ? 'ghp_xxxxxxxxxxxxxxxxxxxx' : '••••••••••••••••'}
                                             help={
                                                 tokenEditing
