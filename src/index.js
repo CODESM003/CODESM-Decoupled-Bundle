@@ -743,16 +743,26 @@ function App() {
     const handleSave = async () => {
         setIsSaving(true);
         try {
-            let dataToSave = settings;
+            let dataToSave = { ...settings };
+
+            // Only send token if explicitly edited
             if (tokenEditing && tokenInput) {
                 dataToSave = {
-                    ...settings,
+                    ...dataToSave,
                     build: {
-                        ...settings.build,
+                        ...dataToSave.build,
                         github_token: tokenInput,
                     },
                 };
+            } else if (!tokenEditing) {
+                // Remove token from payload if not editing (keeps existing value in DB)
+                const { github_token, ...buildWithoutToken } = dataToSave.build;
+                dataToSave = {
+                    ...dataToSave,
+                    build: buildWithoutToken,
+                };
             }
+
             if (ghLoaded && workflows.length > 0) {
                 const validIds = new Set(workflows.map(wf => String(wf.id)));
                 dataToSave = {
@@ -1112,7 +1122,7 @@ function App() {
                                             label="Personal Access Token"
                                             value={tokenEditing ? tokenInput : (build.github_token ? '••••••••••••••••' : '')}
                                             onChange={tokenEditing ? setTokenInput : () => {}}
-                                            onFocus={() => {
+                                            onMouseDown={() => {
                                                 if (build.github_token && !tokenEditing) {
                                                     setShowTokenConfirm(true);
                                                 }
