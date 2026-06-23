@@ -646,6 +646,7 @@ function App() {
     const removeSocialEntry = (i)        => mutateArray('social', a => (a || []).filter((_, idx) => idx !== i));
     const setGtm     = (key) => (val) => setSettings(p => ({ ...p, gtm:     { ...p.gtm,     [key]: val } }));
     const setBuild   = (key) => (val) => setSettings(p => ({ ...p, build:   { ...p.build,   [key]: val } }));
+    const setPlugin  = (key) => (val) => setSettings(p => ({ ...p, plugin:  { ...p.plugin,  [key]: val } }));
     const setMaintenance = (key) => (val) => setSettings(p => ({ ...p, maintenance: { ...p.maintenance, [key]: val } }));
 
     const addPhone = () => mutateArray('contact.phones', a => [...(a || []), { label: '', number: '' }]);
@@ -786,6 +787,7 @@ function App() {
     const gtm = settings.gtm         || {};
     const scripts = settings.scripts     || {};
     const build = settings.build       || {};
+    const plugin = settings.plugin      || {};
     const maintenance = settings.maintenance || {};
 
     const phones    = Array.isArray(contact.phones)    ? contact.phones    : [];
@@ -1098,15 +1100,6 @@ function App() {
                                         />
                                     </div>
                                 </div>
-                                <div className="codesm-decoupled-bundle-field">
-                                    <ToggleControl
-                                        label="Auto-update from prerelease versions"
-                                        help="When enabled, this plugin will update to prerelease versions from the prerelease branch. When disabled, only stable releases are used."
-                                        checked={!!build.prerelease_enabled}
-                                        onChange={setBuild('prerelease_enabled')}
-                                        __nextHasNoMarginBottom
-                                    />
-                                </div>
                                 <div className="codesm-decoupled-bundle-creds-actions">
                                     <Button
                                         variant="secondary"
@@ -1284,8 +1277,8 @@ function App() {
                                     <CheckboxControl
                                         label="Opt in for Prerelease Versions"
                                         help="When enabled, this plugin will auto-update to prerelease versions. This setting is saved."
-                                        checked={!!build.prerelease_enabled}
-                                        onChange={setBuild('prerelease_enabled')}
+                                        checked={!!plugin.prerelease_enabled}
+                                        onChange={setPlugin('prerelease_enabled')}
                                         __nextHasNoMarginBottom
                                     />
                                 </div>
@@ -1306,30 +1299,32 @@ function App() {
                                 )}
 
                                 {latestStable && (
-                                    <div style={{ marginTop: '24px', padding: '12px', backgroundColor: '#f5f5f5', borderRadius: '4px' }}>
-                                        <strong>Latest Stable:</strong>
-                                        <div style={{ marginTop: '8px' }}>
-                                            <p style={{ margin: '4px 0' }}><code>{latestStable.version}</code></p>
-                                            {latestStable.url && (
-                                                <a href={latestStable.url} target="_blank" rel="noreferrer" style={{ fontSize: '0.9em' }}>
-                                                    View on GitHub →
-                                                </a>
-                                            )}
+                                    <div className="codesm-decoupled-bundle-version-card codesm-decoupled-bundle-version-card--stable">
+                                        <div className="codesm-decoupled-bundle-version-card__header">
+                                            <span className="codesm-decoupled-bundle-version-card__icon">✓</span>
+                                            <span className="codesm-decoupled-bundle-version-card__label">Latest Stable Release</span>
                                         </div>
+                                        <div className="codesm-decoupled-bundle-version-card__version">{latestStable.version}</div>
+                                        {latestStable.url && (
+                                            <a href={latestStable.url} target="_blank" rel="noreferrer" className="codesm-decoupled-bundle-version-card__link">
+                                                View on GitHub →
+                                            </a>
+                                        )}
                                     </div>
                                 )}
 
-                                {build.prerelease_enabled && latestPrerelease && (
-                                    <div style={{ marginTop: '16px', padding: '12px', backgroundColor: '#fff3cd', borderRadius: '4px' }}>
-                                        <strong>Latest Prerelease:</strong>
-                                        <div style={{ marginTop: '8px' }}>
-                                            <p style={{ margin: '4px 0' }}><code>{latestPrerelease.version}</code></p>
-                                            {latestPrerelease.url && (
-                                                <a href={latestPrerelease.url} target="_blank" rel="noreferrer" style={{ fontSize: '0.9em' }}>
-                                                    View on GitHub →
-                                                </a>
-                                            )}
+                                {plugin.prerelease_enabled && latestPrerelease && (
+                                    <div className="codesm-decoupled-bundle-version-card codesm-decoupled-bundle-version-card--prerelease">
+                                        <div className="codesm-decoupled-bundle-version-card__header">
+                                            <span className="codesm-decoupled-bundle-version-card__icon">⚡</span>
+                                            <span className="codesm-decoupled-bundle-version-card__label">Latest Prerelease</span>
                                         </div>
+                                        <div className="codesm-decoupled-bundle-version-card__version">{latestPrerelease.version}</div>
+                                        {latestPrerelease.url && (
+                                            <a href={latestPrerelease.url} target="_blank" rel="noreferrer" className="codesm-decoupled-bundle-version-card__link">
+                                                View on GitHub →
+                                            </a>
+                                        )}
                                     </div>
                                 )}
                             </div>
@@ -1407,7 +1402,7 @@ function App() {
                 </div>
             </div>
 
-            {activeTab !== 'deployments' && activeTab !== 'plugin-updates' && (
+            {activeTab !== 'deployments' && (
                 <div className="codesm-decoupled-bundle-admin__footer">
                     <Button variant="primary" onClick={handleSave} isBusy={isSaving} disabled={isSaving}>
                         {isSaving ? (i18n?.saving || 'Saving…') : (i18n?.saveSettings || 'Save Settings')}
