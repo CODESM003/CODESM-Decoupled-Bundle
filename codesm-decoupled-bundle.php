@@ -3,7 +3,7 @@
  * Plugin Name: CODESM Decoupled Bundle
  * Plugin URI:  https://codesm.com
  * Description: Site settings, contact info, GTM config, global/per-page script injection, and Astro build triggers for decoupled WordPress + Astro setups.
- * Version:     0.0.1-prerelease-rc7
+ * Version:     0.0.1-prerelease-rc8
  * Author:      Kavit Trivedi
  * Author URI:  https://codesm.com
  * Text Domain: codesm-decoupled-bundle
@@ -19,7 +19,7 @@ declare(strict_types=1);
 if (!defined('ABSPATH')) exit;
 
 /** @var string Plugin version. */
-define('CODESM_DECOUPLED_BUNDLE_VERSION',        '0.0.1-prerelease-rc7');
+define('CODESM_DECOUPLED_BUNDLE_VERSION',        '0.0.1-prerelease-rc8');
 
 /** @var string Absolute path to the plugin directory, with trailing slash. */
 define('CODESM_DECOUPLED_BUNDLE_DIRECTORY_PATH', plugin_dir_path(__FILE__));
