@@ -11,13 +11,14 @@ import {
     SelectControl,
     Modal,
 } from '@wordpress/components';
-import { trash } from '@wordpress/icons';
 import './styles.scss';
 
 const { restUrl, restNonce, initialSettings, initialLog, i18n } =
     window.codesmDecoupledBundle || {};
 
 apiFetch.use(apiFetch.createNonceMiddleware(restNonce));
+
+const TrashIcon = () => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19 6.4L17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6l1.4 1.4L12 13.4l5.6 5.6 1.4-1.4L13.4 12 19 6.4Z"/></svg>;
 
 const TABS = [
     { id: 'site',        label: 'Site' },
@@ -27,6 +28,7 @@ const TABS = [
     { id: 'maintenance', label: 'Maintenance' },
     { id: 'build',       label: 'Build' },
     { id: 'deployments', label: 'Deployments' },
+    { id: 'plugin-updates', label: 'Plugin Updates' },
 ];
 
 const SOCIAL_NETWORKS = [
@@ -56,7 +58,7 @@ const SOCIAL_NETWORKS = [
 // Utilities
 // ─────────────────────────────────────────────────────────────────────────────
 
-function formatDate(iso) {
+const formatDate = (iso) => {
     if (!iso) return '—';
     try {
         return new Date(iso).toLocaleString(undefined, {
@@ -67,41 +69,40 @@ function formatDate(iso) {
     } catch {
         return iso;
     }
-}
+};
 
-function unixToUtcDateTime(unixTimestamp) {
+const unixToUtcDateTime = (unixTimestamp) => {
     if (!unixTimestamp) return '';
-    const date = new Date(unixTimestamp * 1000);
-    return date.toISOString().slice(0, 16);
-}
+    return new Date(unixTimestamp * 1000).toISOString().slice(0, 16);
+};
 
-function utcDateTimeToUnix(utcDateTime) {
+const utcDateTimeToUnix = (utcDateTime) => {
     if (!utcDateTime) return 0;
     return Math.floor(new Date(utcDateTime + 'Z').getTime() / 1000);
-}
+};
 
-function formatCurrentUtcTime() {
+const formatCurrentUtcTime = () => {
     const now = new Date();
     return now.toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
-}
+};
 
-function runStatus(status, conclusion) {
-    if (status === 'queued')      return { label: 'Queued',    className: 'codesm-decoupled-bundle-status--queued' };
-    if (status === 'in_progress') return { label: 'Running…',  className: 'codesm-decoupled-bundle-status--running' };
-    if (status === 'completed') {
-        const map = {
-            success:         { label: 'Success',         className: 'codesm-decoupled-bundle-status--success' },
-            failure:         { label: 'Failed',          className: 'codesm-decoupled-bundle-status--failed' },
-            cancelled:       { label: 'Cancelled',       className: 'codesm-decoupled-bundle-status--cancelled' },
-            timed_out:       { label: 'Timed out',       className: 'codesm-decoupled-bundle-status--failed' },
-            action_required: { label: 'Action required', className: 'codesm-decoupled-bundle-status--warning' },
-            skipped:         { label: 'Skipped',         className: 'codesm-decoupled-bundle-status--cancelled' },
-            neutral:         { label: 'Neutral',         className: 'codesm-decoupled-bundle-status--cancelled' },
-        };
-        return map[conclusion] ?? { label: conclusion ?? 'Unknown', className: 'codesm-decoupled-bundle-status--unknown' };
-    }
+const RUN_STATUS_MAP = {
+    queued:      { label: 'Queued',    className: 'codesm-decoupled-bundle-status--queued' },
+    in_progress: { label: 'Running…',  className: 'codesm-decoupled-bundle-status--running' },
+    success:         { label: 'Success',         className: 'codesm-decoupled-bundle-status--success' },
+    failure:         { label: 'Failed',          className: 'codesm-decoupled-bundle-status--failed' },
+    cancelled:       { label: 'Cancelled',       className: 'codesm-decoupled-bundle-status--cancelled' },
+    timed_out:       { label: 'Timed out',       className: 'codesm-decoupled-bundle-status--failed' },
+    action_required: { label: 'Action required', className: 'codesm-decoupled-bundle-status--warning' },
+    skipped:         { label: 'Skipped',         className: 'codesm-decoupled-bundle-status--cancelled' },
+    neutral:         { label: 'Neutral',         className: 'codesm-decoupled-bundle-status--cancelled' },
+};
+
+const runStatus = (status, conclusion) => {
+    if (RUN_STATUS_MAP[status]) return RUN_STATUS_MAP[status];
+    if (status === 'completed') return RUN_STATUS_MAP[conclusion] ?? { label: conclusion ?? 'Unknown', className: 'codesm-decoupled-bundle-status--unknown' };
     return { label: status ?? 'Unknown', className: 'codesm-decoupled-bundle-status--unknown' };
-}
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LocationRow — collapsible location card
@@ -122,7 +123,7 @@ function LocationRow({ loc, index, onChange, onRemove }) {
                     className="codesm-decoupled-bundle-page-row__url"
                 />
                 <Button variant="tertiary" onClick={() => setExpanded(x => !x)}>{expanded ? '▲' : '▼'}</Button>
-                <Button variant="tertiary" isDestructive icon={trash} onClick={() => onRemove(index)} label="Remove" />
+                <Button variant="tertiary" isDestructive children={<TrashIcon />} onClick={() => onRemove(index)} label="Remove" />
             </div>
             {expanded && (
                 <div className="codesm-decoupled-bundle-page-row__body">
@@ -234,7 +235,7 @@ function PageScriptRow({ entry, index, onChange, onRemove }) {
                 <Button variant="tertiary" onClick={() => setExpanded((x) => !x)}>
                     {expanded ? '▲' : '▼'}
                 </Button>
-                <Button variant="tertiary" isDestructive icon={trash} onClick={() => onRemove(index)} label="Remove" />
+                <Button variant="tertiary" isDestructive children={<TrashIcon />} onClick={() => onRemove(index)} label="Remove" />
             </div>
             {expanded && (
                 <div className="codesm-decoupled-bundle-page-row__body">
@@ -610,6 +611,12 @@ function App() {
     const [isTriggering, setIsTriggering]                 = useState(false);
     const [showTriggerConfirm, setShowTriggerConfirm]     = useState(false);
 
+    // Update checking (Updates tab)
+    const [latestStable, setLatestStable]   = useState(null);
+    const [latestPrerelease, setLatestPrerelease] = useState(null);
+    const [updateChecking, setUpdateChecking]     = useState(false);
+    const [updateError, setUpdateError]           = useState(null);
+
     const showNotice = (status, message) => {
         setNotice({ status, message });
         setTimeout(() => setNotice(null), 5000);
@@ -617,51 +624,37 @@ function App() {
 
     // ── Nested state updaters ───────────────────────────────────────────────
 
-    const setSite    = (key) => (val) => setSettings(p => ({ ...p, site:    { ...p.site,    [key]: val } }));
-    const addEmail    = ()         => setSettings(p => ({ ...p, contact: { ...p.contact, emails: [...(p.contact?.emails || []), { label: '', address: '' }] } }));
-    const updateEmail = (i, patch) => setSettings(p => { const e = [...(p.contact?.emails || [])]; e[i] = { ...e[i], ...patch }; return { ...p, contact: { ...p.contact, emails: e } }; });
-    const removeEmail = (i)        => setSettings(p => ({ ...p, contact: { ...p.contact, emails: (p.contact?.emails || []).filter((_, idx) => idx !== i) } }));
+    const mutateArray = (path, action) => setSettings(p => {
+        const keys = path.split('.');
+        const root = { ...p };
+        let target = root;
+        for (let i = 0; i < keys.length - 1; i++) target = target[keys[i]] = { ...target[keys[i]] };
+        target[keys[keys.length - 1]] = action(target[keys[keys.length - 1]]);
+        return root;
+    });
 
-    const addLocation    = ()         => setSettings(p => ({ ...p, contact: { ...p.contact, locations: [...(p.contact?.locations || []), { label: '', address: { street: '', city: '', state: '', zip: '', country: '' }, coordinates: { lat: '', lng: '' } }] } }));
-    const updateLocation = (i, patch) => setSettings(p => { const l = [...(p.contact?.locations || [])]; l[i] = { ...l[i], ...patch }; return { ...p, contact: { ...p.contact, locations: l } }; });
-    const removeLocation = (i)        => setSettings(p => ({ ...p, contact: { ...p.contact, locations: (p.contact?.locations || []).filter((_, idx) => idx !== i) } }));
-    const addSocialEntry    = ()         => setSettings(p => ({ ...p, social: [...(p.social || []), { platform: '', url: '' }] }));
-    const updateSocialEntry = (i, patch) => setSettings(p => { const s = [...(p.social || [])]; s[i] = { ...s[i], ...patch }; return { ...p, social: s }; });
-    const removeSocialEntry = (i)        => setSettings(p => ({ ...p, social: (p.social || []).filter((_, idx) => idx !== i) }));
+    const setSite    = (key) => (val) => setSettings(p => ({ ...p, site:    { ...p.site,    [key]: val } }));
+    const addEmail    = ()         => mutateArray('contact.emails', a => [...(a || []), { label: '', address: '' }]);
+    const updateEmail = (i, patch) => mutateArray('contact.emails', a => { const e = [...(a || [])]; e[i] = { ...e[i], ...patch }; return e; });
+    const removeEmail = (i)        => mutateArray('contact.emails', a => (a || []).filter((_, idx) => idx !== i));
+
+    const addLocation    = ()         => mutateArray('contact.locations', a => [...(a || []), { label: '', address: { street: '', city: '', state: '', zip: '', country: '' }, coordinates: { lat: '', lng: '' } }]);
+    const updateLocation = (i, patch) => mutateArray('contact.locations', a => { const l = [...(a || [])]; l[i] = { ...l[i], ...patch }; return l; });
+    const removeLocation = (i)        => mutateArray('contact.locations', a => (a || []).filter((_, idx) => idx !== i));
+    const addSocialEntry    = ()         => mutateArray('social', a => [...(a || []), { platform: '', url: '' }]);
+    const updateSocialEntry = (i, patch) => mutateArray('social', a => { const s = [...(a || [])]; s[i] = { ...s[i], ...patch }; return s; });
+    const removeSocialEntry = (i)        => mutateArray('social', a => (a || []).filter((_, idx) => idx !== i));
     const setGtm     = (key) => (val) => setSettings(p => ({ ...p, gtm:     { ...p.gtm,     [key]: val } }));
     const setBuild   = (key) => (val) => setSettings(p => ({ ...p, build:   { ...p.build,   [key]: val } }));
     const setMaintenance = (key) => (val) => setSettings(p => ({ ...p, maintenance: { ...p.maintenance, [key]: val } }));
 
-    // ── Phone list ─────────────────────────────────────────────────────────
+    const addPhone = () => mutateArray('contact.phones', a => [...(a || []), { label: '', number: '' }]);
+    const updatePhone = (i, updated) => mutateArray('contact.phones', a => { const phones = [...(a || [])]; phones[i] = updated; return phones; });
+    const removePhone = (i) => mutateArray('contact.phones', a => (a || []).filter((_, idx) => idx !== i));
 
-    const addPhone = () => setSettings(p => ({
-        ...p, contact: { ...p.contact, phones: [...(p.contact?.phones || []), { label: '', number: '' }] }
-    }));
-    const updatePhone = (i, updated) => setSettings(p => {
-        const phones = [...(p.contact?.phones || [])];
-        phones[i] = updated;
-        return { ...p, contact: { ...p.contact, phones } };
-    });
-    const removePhone = (i) => setSettings(p => ({
-        ...p, contact: { ...p.contact, phones: (p.contact?.phones || []).filter((_, idx) => idx !== i) }
-    }));
-
-    // ── Per-page scripts ───────────────────────────────────────────────────
-
-    const addPageScript = () => setSettings(p => ({
-        ...p, scripts: {
-            ...p.scripts,
-            pages: [...(p.scripts?.pages || []), { url_pattern: '', json_ld: '', header: '', body_start: '', body_end: '' }]
-        }
-    }));
-    const updatePageScript = (i, updated) => setSettings(p => {
-        const pages = [...(p.scripts?.pages || [])];
-        pages[i] = updated;
-        return { ...p, scripts: { ...p.scripts, pages } };
-    });
-    const removePageScript = (i) => setSettings(p => ({
-        ...p, scripts: { ...p.scripts, pages: (p.scripts?.pages || []).filter((_, idx) => idx !== i) }
-    }));
+    const addPageScript = () => mutateArray('scripts.pages', a => [...(a || []), { url_pattern: '', json_ld: '', header: '', body_start: '', body_end: '' }]);
+    const updatePageScript = (i, updated) => mutateArray('scripts.pages', a => { const pages = [...(a || [])]; pages[i] = updated; return pages; });
+    const removePageScript = (i) => mutateArray('scripts.pages', a => (a || []).filter((_, idx) => idx !== i));
 
     // ── Auto-build targets ─────────────────────────────────────────────────
 
@@ -715,6 +708,26 @@ function App() {
             loadGithubData();
         }
     }, [activeTab]);
+
+    const checkForUpdates = async () => {
+        setUpdateChecking(true);
+        setUpdateError(null);
+        setLatestStable(null);
+        setLatestPrerelease(null);
+        try {
+            const result = await apiFetch({ url: `${restUrl}/update-info` });
+            if (result.error) {
+                setUpdateError(result.error);
+            } else {
+                if (result.stable) setLatestStable(result.stable);
+                if (result.prerelease) setLatestPrerelease(result.prerelease);
+            }
+        } catch (err) {
+            setUpdateError(err.message || 'Failed to check for updates.');
+        } finally {
+            setUpdateChecking(false);
+        }
+    };
 
     // ── Save settings ──────────────────────────────────────────────────────
 
@@ -914,7 +927,7 @@ function App() {
                                             className="codesm-decoupled-bundle-phone-row__number"
                                             __nextHasNoMarginBottom
                                         />
-                                        <Button variant="tertiary" isDestructive icon={trash} onClick={() => removePhone(idx)} label="Remove" />
+                                        <Button variant="tertiary" isDestructive children={<TrashIcon />} onClick={() => removePhone(idx)} label="Remove" />
                                     </div>
                                 ))}
                                 <Button variant="secondary" onClick={addPhone}>+ Add Phone</Button>
@@ -941,7 +954,7 @@ function App() {
                                             className="codesm-decoupled-bundle-phone-row__number"
                                             __nextHasNoMarginBottom
                                         />
-                                        <Button variant="tertiary" isDestructive icon={trash} onClick={() => removeEmail(idx)} label="Remove" />
+                                        <Button variant="tertiary" isDestructive children={<TrashIcon />} onClick={() => removeEmail(idx)} label="Remove" />
                                     </div>
                                 ))}
                                 <Button variant="secondary" onClick={addEmail}>+ Add Email</Button>
@@ -984,7 +997,7 @@ function App() {
                                                 className="codesm-decoupled-bundle-phone-row__number"
                                                 __nextHasNoMarginBottom
                                             />
-                                            <Button variant="tertiary" isDestructive icon={trash} onClick={() => removeSocialEntry(idx)} label="Remove" />
+                                            <Button variant="tertiary" isDestructive children={<TrashIcon />} onClick={() => removeSocialEntry(idx)} label="Remove" />
                                         </div>
                                     );
                                 })}
@@ -1085,6 +1098,15 @@ function App() {
                                         />
                                     </div>
                                 </div>
+                                <div className="codesm-decoupled-bundle-field">
+                                    <ToggleControl
+                                        label="Auto-update from prerelease versions"
+                                        help="When enabled, this plugin will update to prerelease versions from the prerelease branch. When disabled, only stable releases are used."
+                                        checked={!!build.prerelease_enabled}
+                                        onChange={setBuild('prerelease_enabled')}
+                                        __nextHasNoMarginBottom
+                                    />
+                                </div>
                                 <div className="codesm-decoupled-bundle-creds-actions">
                                     <Button
                                         variant="secondary"
@@ -1150,7 +1172,7 @@ function App() {
                                                                 __nextHasNoMarginBottom
                                                             />
                                                         )}
-                                                        <Button variant="tertiary" isDestructive icon={trash} onClick={() => removeAutoTarget(ti)} label="Remove" />
+                                                        <Button variant="tertiary" isDestructive children={<TrashIcon />} onClick={() => removeAutoTarget(ti)} label="Remove" />
                                                     </div>
                                                     <div className="codesm-decoupled-bundle-target-card__workflows">
                                                         <p className="codesm-decoupled-bundle-section__sub-label">Workflows:</p>
@@ -1249,6 +1271,71 @@ function App() {
                         </div>
                     )}
 
+                    {/* ════════════════ PLUGIN UPDATES ════════════════ */}
+                    {activeTab === 'plugin-updates' && (
+                        <div className="codesm-decoupled-bundle-tab-content">
+                            <div className="codesm-decoupled-bundle-section">
+                                <h3 className="codesm-decoupled-bundle-section__title">Plugin Updates</h3>
+                                <p className="codesm-decoupled-bundle-panel-desc">
+                                    Check for the latest stable and prerelease versions of the CODESM Decoupled Bundle plugin.
+                                </p>
+
+                                <div className="codesm-decoupled-bundle-field">
+                                    <CheckboxControl
+                                        label="Opt in for Prerelease Versions"
+                                        help="When enabled, this plugin will auto-update to prerelease versions. This setting is saved."
+                                        checked={!!build.prerelease_enabled}
+                                        onChange={setBuild('prerelease_enabled')}
+                                        __nextHasNoMarginBottom
+                                    />
+                                </div>
+
+                                <Button
+                                    variant="primary"
+                                    onClick={checkForUpdates}
+                                    isBusy={updateChecking}
+                                    disabled={updateChecking}
+                                >
+                                    {updateChecking ? 'Checking…' : 'Check for Updates'}
+                                </Button>
+
+                                {updateError && (
+                                    <Notice status="error" isDismissible={false} style={{ marginTop: '16px' }}>
+                                        {updateError}
+                                    </Notice>
+                                )}
+
+                                {latestStable && (
+                                    <div style={{ marginTop: '24px', padding: '12px', backgroundColor: '#f5f5f5', borderRadius: '4px' }}>
+                                        <strong>Latest Stable:</strong>
+                                        <div style={{ marginTop: '8px' }}>
+                                            <p style={{ margin: '4px 0' }}><code>{latestStable.version}</code></p>
+                                            {latestStable.url && (
+                                                <a href={latestStable.url} target="_blank" rel="noreferrer" style={{ fontSize: '0.9em' }}>
+                                                    View on GitHub →
+                                                </a>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {build.prerelease_enabled && latestPrerelease && (
+                                    <div style={{ marginTop: '16px', padding: '12px', backgroundColor: '#fff3cd', borderRadius: '4px' }}>
+                                        <strong>Latest Prerelease:</strong>
+                                        <div style={{ marginTop: '8px' }}>
+                                            <p style={{ margin: '4px 0' }}><code>{latestPrerelease.version}</code></p>
+                                            {latestPrerelease.url && (
+                                                <a href={latestPrerelease.url} target="_blank" rel="noreferrer" style={{ fontSize: '0.9em' }}>
+                                                    View on GitHub →
+                                                </a>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
                     {/* ════════════════ MAINTENANCE ════════════════ */}
                     {activeTab === 'maintenance' && (
                         <div className="codesm-decoupled-bundle-tab-content">
@@ -1320,7 +1407,7 @@ function App() {
                 </div>
             </div>
 
-            {activeTab !== 'deployments' && (
+            {activeTab !== 'deployments' && activeTab !== 'plugin-updates' && (
                 <div className="codesm-decoupled-bundle-admin__footer">
                     <Button variant="primary" onClick={handleSave} isBusy={isSaving} disabled={isSaving}>
                         {isSaving ? (i18n?.saving || 'Saving…') : (i18n?.saveSettings || 'Save Settings')}

@@ -95,10 +95,16 @@ class GitHubUpdater {
     /**
      * Fetches the latest release from GitHub API with caching.
      *
+     * Respects the prerelease_enabled setting:
+     * - If disabled: only returns stable releases (prerelease: false)
+     * - If enabled: returns any release (stable or prerelease)
+     *
      * @return array{version: string, url: string, download_url: string, body: string}|null
      */
     private static function get_latest_release() {
-        $cache_key = 'codesm_decoupled_bundle_github_latest';
+        $settings = Settings::get();
+        $prerelease_enabled = (bool) ($settings['build']['prerelease_enabled'] ?? false);
+        $cache_key = 'codesm_decoupled_bundle_github_latest' . ($prerelease_enabled ? '_pre' : '');
         $cached = get_transient($cache_key);
 
         if ($cached) {
@@ -106,7 +112,7 @@ class GitHubUpdater {
         }
 
         $response = wp_remote_get(
-            'https://api.github.com/repos/' . self::GITHUB_REPO . '/releases/latest',
+            'https://api.github.com/repos/' . self::GITHUB_REPO . '/releases',
             [
                 'timeout' => 10,
                 'headers' => ['Accept' => 'application/vnd.github+json'],
@@ -117,20 +123,87 @@ class GitHubUpdater {
             return null;
         }
 
-        $release = json_decode(wp_remote_retrieve_body($response), true);
-        if (!isset($release['tag_name'])) {
+        $releases = json_decode(wp_remote_retrieve_body($response), true);
+        if (!is_array($releases)) {
             return null;
         }
 
-        $data = [
-            'version'      => ltrim($release['tag_name'], 'v'),
-            'url'          => $release['html_url'] ?? '',
-            'download_url' => $release['zipball_url'] ?? '',
-            'body'         => $release['body'] ?? '',
-        ];
+        foreach ($releases as $release) {
+            if (!isset($release['tag_name'])) continue;
+            if (!$prerelease_enabled && $release['prerelease']) continue;
 
-        set_transient($cache_key, $data, 12 * HOUR_IN_SECONDS);
+            $data = [
+                'version'      => ltrim($release['tag_name'], 'v'),
+                'url'          => $release['html_url'] ?? '',
+                'download_url' => $release['zipball_url'] ?? '',
+                'body'         => $release['body'] ?? '',
+            ];
 
-        return $data;
+            set_transient($cache_key, $data, 12 * HOUR_IN_SECONDS);
+            return $data;
+        }
+
+        return null;
+    }
+
+    /**
+     * Fetches latest stable and prerelease versions for the admin panel.
+     *
+     * @return array{stable: array|null, prerelease: array|null, error: string|null}
+     */
+    public static function get_version_info(): array {
+        $cache_key = 'codesm_decoupled_bundle_version_info';
+        $cached = get_transient($cache_key);
+        if ($cached) {
+            return $cached;
+        }
+
+        $response = wp_remote_get(
+            'https://api.github.com/repos/' . self::GITHUB_REPO . '/releases',
+            [
+                'timeout' => 10,
+                'headers' => ['Accept' => 'application/vnd.github+json'],
+            ]
+        );
+
+        if (is_wp_error($response)) {
+            $result = ['stable' => null, 'prerelease' => null, 'error' => 'Failed to fetch releases from GitHub.'];
+            set_transient($cache_key, $result, 5 * MINUTE_IN_SECONDS);
+            return $result;
+        }
+
+        $releases = json_decode(wp_remote_retrieve_body($response), true);
+        if (!is_array($releases)) {
+            $result = ['stable' => null, 'prerelease' => null, 'error' => 'Invalid response from GitHub.'];
+            set_transient($cache_key, $result, 5 * MINUTE_IN_SECONDS);
+            return $result;
+        }
+
+        $stable = null;
+        $prerelease = null;
+
+        foreach ($releases as $release) {
+            if (!isset($release['tag_name'])) continue;
+
+            $data = [
+                'version'      => ltrim($release['tag_name'], 'v'),
+                'url'          => $release['html_url'] ?? '',
+                'download_url' => $release['zipball_url'] ?? '',
+                'body'         => $release['body'] ?? '',
+            ];
+
+            if ($release['prerelease'] && !$prerelease) {
+                $prerelease = $data;
+            } elseif (!$release['prerelease'] && !$stable) {
+                $stable = $data;
+            }
+
+            if ($stable && $prerelease) break;
+        }
+
+        $result = ['stable' => $stable, 'prerelease' => $prerelease, 'error' => null];
+        set_transient($cache_key, $result, 5 * MINUTE_IN_SECONDS);
+
+        return $result;
     }
 }

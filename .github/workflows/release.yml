@@ -1,0 +1,64 @@
+name: Version Bump & Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version in package.json
+        run: npm version patch --no-git-tag-version
+
+      - name: Read new version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version bumped to: $VERSION"
+
+      - name: Update PHP plugin file version header
+        run: |
+          sed -i "s/ \* Version:     .*/\ * Version:     ${{ steps.version.outputs.version }}/" codesm-decoupled-bundle.php
+
+      - name: Update PHP plugin file version constant
+        run: |
+          sed -i "s/define('CODESM_DECOUPLED_BUNDLE_VERSION',        '.*/define('CODESM_DECOUPLED_BUNDLE_VERSION',        '${{ steps.version.outputs.version }}');/" codesm-decoupled-bundle.php
+
+      - name: Commit version bump
+        run: |
+          git add package.json package-lock.json codesm-decoupled-bundle.php
+          git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
+
+      - name: Create git tag
+        run: git tag "v${{ steps.version.outputs.version }}"
+
+      - name: Push changes and tag
+        run: |
+          git push origin main
+          git push origin "v${{ steps.version.outputs.version }}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ steps.version.outputs.version }}"
+          generate_release_notes: true

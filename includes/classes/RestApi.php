@@ -143,6 +143,12 @@ class RestApi {
             'callback'            => [self::class, 'handle_clear_logs'],
             'permission_callback' => [self::class, 'require_admin'],
         ]);
+
+        register_rest_route(self::NAMESPACE, '/update-info', [
+            'methods'             => \WP_REST_Server::READABLE,
+            'callback'            => [self::class, 'handle_get_update_info'],
+            'permission_callback' => [self::class, 'require_admin'],
+        ]);
     }
 
     // -------------------------------------------------------------------------
@@ -197,8 +203,8 @@ class RestApi {
      * Returns all non-sensitive settings (site info, contact, GTM, script
      * injection rules). GitHub credentials are stripped before the response.
      *
-     * @param  \WP_REST_Request $request Incoming REST request.
-     * @return \WP_REST_Response         Non-sensitive settings object.
+     * @param  \WP_REST_Request $_request Incoming REST request.
+     * @return \WP_REST_Response          Non-sensitive settings object.
      */
     public static function handle_get_settings(\WP_REST_Request $_request): \WP_REST_Response {
         return new \WP_REST_Response(Settings::get_public(), 200);
@@ -326,8 +332,8 @@ class RestApi {
      *
      * Results are cached for 5 minutes to avoid hammering the GitHub API.
      *
-     * @param  \WP_REST_Request $_request Incoming REST request.
-     * @return \WP_REST_Response          { runs[], local_log[], error: string|null }
+     * @param  \WP_REST_Request $request Incoming REST request.
+     * @return \WP_REST_Response         { runs[], local_log[], error: string|null }
      */
     public static function handle_get_builds(\WP_REST_Request $request): \WP_REST_Response {
         if (!self::check_rate_limit()) {
@@ -353,7 +359,7 @@ class RestApi {
      * POST /clear-logs — Admin endpoint to clear the local dispatch log.
      *
      * @param  \WP_REST_Request $_request Incoming REST request.
-     * @return \WP_REST_Response          { success: bool, cleared: bool }
+     * @return \WP_REST_Response           { success: bool, cleared: bool }
      */
     public static function handle_clear_logs(\WP_REST_Request $_request): \WP_REST_Response {
         $cleared = BuildManager::clear_logs();
@@ -367,5 +373,16 @@ class RestApi {
         ));
 
         return new \WP_REST_Response(['success' => true, 'cleared' => $cleared], 200);
+    }
+
+    /**
+     * GET /update-info — Admin endpoint to fetch latest stable and prerelease versions.
+     *
+     * @param  \WP_REST_Request $_request Incoming REST request.
+     * @return \WP_REST_Response          { stable: {...}, prerelease: {...}, error: ?string }
+     */
+    public static function handle_get_update_info(\WP_REST_Request $_request): \WP_REST_Response {
+        $info = GitHubUpdater::get_version_info();
+        return new \WP_REST_Response($info, 200);
     }
 }
