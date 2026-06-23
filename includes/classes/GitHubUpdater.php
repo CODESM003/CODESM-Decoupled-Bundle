@@ -42,7 +42,7 @@ class GitHubUpdater {
 
         if ($latest_release && version_compare($latest_release['version'], $current_version, '>')) {
             $transient->response[$plugin_file] = (object) [
-                'id'           => self::GITHUB_REPO,
+                'id'           => 'codesm-decoupled-bundle',
                 'slug'         => 'codesm-decoupled-bundle',
                 'plugin'       => $plugin_file,
                 'new_version'  => $latest_release['version'],
