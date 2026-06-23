@@ -103,7 +103,7 @@ class GitHubUpdater {
      */
     private static function get_latest_release() {
         $settings = Settings::get();
-        $prerelease_enabled = (bool) ($settings['build']['prerelease_enabled'] ?? false);
+        $prerelease_enabled = (bool) ($settings['plugin']['prerelease_enabled'] ?? false);
         $cache_key = 'codesm_decoupled_bundle_github_latest' . ($prerelease_enabled ? '_pre' : '');
         $cached = get_transient($cache_key);
 

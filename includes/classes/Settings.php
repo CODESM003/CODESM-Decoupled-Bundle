@@ -10,7 +10,8 @@
  *   social   — URLs for every supported social network
  *   gtm      — Google Tag Manager container ID
  *   scripts  — global and per-page script/JSON-LD injection rules
- *   build    — GitHub Actions credentials and auto-build configuration
+ *   build    — GitHub Actions credentials and auto-build configuration (for the Astro repo)
+ *   plugin   — plugin-specific settings (prerelease updates)
  *
  * The public GET endpoint returns all sections except `build`, so GitHub
  * credentials are never exposed to unauthenticated requests.
@@ -163,8 +164,12 @@ class Settings {
                 'github_repo'         => self::sanitize_github_repo($input['build']['github_repo'] ?? $c['build']['github_repo']),
                 'auto_enabled'        => (bool) ($input['build']['auto_enabled']                 ?? $c['build']['auto_enabled']),
                 'debounce_minutes'    => max(1, (int) ($input['build']['debounce_minutes']       ?? $c['build']['debounce_minutes'])),
-                'prerelease_enabled'  => (bool) ($input['build']['prerelease_enabled']          ?? $c['build']['prerelease_enabled']),
                 'auto_targets'        => self::sanitize_auto_targets($input['build']['auto_targets'] ?? $c['build']['auto_targets']),
+            ],
+
+            // ── Plugin ───────────────────────────────────────────────────────
+            'plugin' => [
+                'prerelease_enabled'  => (bool) ($input['plugin']['prerelease_enabled']          ?? $c['plugin']['prerelease_enabled']),
             ],
 
             // ── Maintenance ──────────────────────────────────────────────────
@@ -455,9 +460,12 @@ class Settings {
                 'github_repo'         => '',
                 'auto_enabled'        => false,
                 'debounce_minutes'    => 5,
-                'prerelease_enabled'  => false,
                 // Each target: { ref: string, workflows: string[] }
                 'auto_targets'        => [],
+            ],
+
+            'plugin' => [
+                'prerelease_enabled'  => false,
             ],
 
             'maintenance' => [

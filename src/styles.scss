@@ -534,3 +534,86 @@
         word-break: break-word;
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Plugin Updates section
+// ─────────────────────────────────────────────────────────────────────────────
+
+.codesm-decoupled-bundle-version-card {
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    padding: 16px;
+    margin-top: 20px;
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+
+    &--stable {
+        border-color: #90c695;
+        background: #f0fdf4;
+
+        .codesm-decoupled-bundle-version-card__label {
+            color: #1a7918;
+            font-weight: 600;
+        }
+
+        .codesm-decoupled-bundle-version-card__icon {
+            color: #1a7918;
+        }
+    }
+
+    &--prerelease {
+        border-color: #d4a574;
+        background: #fffbf0;
+
+        .codesm-decoupled-bundle-version-card__label {
+            color: #996800;
+            font-weight: 600;
+        }
+
+        .codesm-decoupled-bundle-version-card__icon {
+            color: #996800;
+        }
+    }
+}
+
+.codesm-decoupled-bundle-version-card__header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.codesm-decoupled-bundle-version-card__icon {
+    font-size: 1.2rem;
+    line-height: 1;
+}
+
+.codesm-decoupled-bundle-version-card__label {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.codesm-decoupled-bundle-version-card__version {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #1e1e1e;
+    padding: 4px 0;
+}
+
+.codesm-decoupled-bundle-version-card__link {
+    font-size: 0.8125rem;
+    color: #0073aa;
+    text-decoration: none;
+    display: inline-block;
+    margin-top: 4px;
+
+    &:hover {
+        color: #005177;
+        text-decoration: underline;
+    }
+}
