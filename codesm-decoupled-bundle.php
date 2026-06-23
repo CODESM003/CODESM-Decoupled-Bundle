@@ -19,7 +19,7 @@ declare(strict_types=1);
 if (!defined('ABSPATH')) exit;
 
 /** @var string Plugin version. */
-define('CODESM_DECOUPLED_BUNDLE_VERSION',        '0.0.1-prerelease-rc6');
+define('CODESM_DECOUPLED_BUNDLE_VERSION',        '0.0.1-prerelease-rc7');
 
 /** @var string Absolute path to the plugin directory, with trailing slash. */
 define('CODESM_DECOUPLED_BUNDLE_DIRECTORY_PATH', plugin_dir_path(__FILE__));
