@@ -51,10 +51,11 @@ jobs:
 
           # Update package.json
           node -e "const pkg = require('./package.json'); pkg.version = '$NEW_VERSION'; require('fs').writeFileSync('./package.json', JSON.stringify(pkg, null, 4) + '\n');"
+          npm install --package-lock-only
 
       - name: Update PHP plugin file version header
         run: |
-          sed -i "s/ \* Version:     .*/\ * Version:     ${{ steps.version.outputs.version }}/" codesm-decoupled-bundle.php
+          sed -i "s/ \* Version:     .*/\* Version:     ${{ steps.version.outputs.version }}/" codesm-decoupled-bundle.php
 
       - name: Update PHP plugin file version constant
         run: |
@@ -63,7 +64,7 @@ jobs:
       - name: Commit version bump
         run: |
           git add package.json package-lock.json codesm-decoupled-bundle.php
-          git commit -m "chore: bump prerelease version to ${{ steps.version.outputs.version }}"
+          git commit -m "chore: bump prerelease version to ${{ steps.version.outputs.version }} [skip ci]"
 
       - name: Create git tag
         run: git tag "v${{ steps.version.outputs.version }}"
@@ -75,11 +76,11 @@ jobs:
 
       - name: Create clean ZIP archive
         run: |
-          mkdir -p codesm-decoupled-bundle-build/codesm-decoupled-bundle
-          cp -r --exclude=.git --exclude=.github --exclude=node_modules --exclude=.claude . codesm-decoupled-bundle-build/codesm-decoupled-bundle/
-          cd codesm-decoupled-bundle-build
-          zip -r ../codesm-decoupled-bundle.zip codesm-decoupled-bundle/
-          cd ..
+          mkdir -p build/codesm-decoupled-bundle
+          rsync -av --exclude='.git' --exclude='.github' --exclude='node_modules' --exclude='.claude' --exclude='build' ./ build/codesm-decoupled-bundle/
+          cd build
+          zip -r codesm-decoupled-bundle.zip codesm-decoupled-bundle/
+          mv codesm-decoupled-bundle.zip ..
 
       - name: Create GitHub Release (Pre-release)
         uses: softprops/action-gh-release@v2
