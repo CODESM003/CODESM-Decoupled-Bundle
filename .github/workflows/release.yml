@@ -11,6 +11,7 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, 'chore: bump')"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,7 +40,7 @@ jobs:
 
       - name: Update PHP plugin file version header
         run: |
-          sed -i "s/\( \* Version:\).*/\1     ${{ steps.version.outputs.version }}/" codesm-decoupled-bundle.php
+          sed -i "s/^ *\* Version:.*/\ * Version:     ${{ steps.version.outputs.version }}/" codesm-decoupled-bundle.php
 
       - name: Update PHP plugin file version constant
         run: |
@@ -48,7 +49,7 @@ jobs:
       - name: Commit version bump
         run: |
           git add package.json package-lock.json codesm-decoupled-bundle.php
-          git commit -m "chore: bump version to ${{ steps.version.outputs.version }} [skip ci]"
+          git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
 
       - name: Create git tag
         run: git tag "v${{ steps.version.outputs.version }}"
