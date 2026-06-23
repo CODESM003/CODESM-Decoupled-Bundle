@@ -55,7 +55,6 @@ class GitHubUpdater {
                 'new_version'  => $latest_release['version'],
                 'url'          => $latest_release['url'],
                 'package'      => $latest_release['download_url'],
-                'dir_name'     => 'codesm-decoupled-bundle',
                 'tested'       => '6.9',
                 'requires'     => '6.9',
                 'requires_php' => '8.0',
@@ -146,10 +145,11 @@ class GitHubUpdater {
             if (!isset($release['tag_name'])) continue;
             if (!$prerelease_enabled && $release['prerelease']) continue;
 
+            $download_url = self::get_release_asset_url($release) ?? ($release['zipball_url'] ?? '');
             $data = [
                 'version'      => ltrim($release['tag_name'], 'v'),
                 'url'          => $release['html_url'] ?? '',
-                'download_url' => $release['zipball_url'] ?? '',
+                'download_url' => $download_url,
                 'body'         => self::parse_markdown($release['body'] ?? ''),
             ];
 
@@ -212,10 +212,11 @@ class GitHubUpdater {
         foreach ($releases as $release) {
             if (!isset($release['tag_name'])) continue;
 
+            $download_url = self::get_release_asset_url($release) ?? ($release['zipball_url'] ?? '');
             $data = [
                 'version'      => ltrim($release['tag_name'], 'v'),
                 'url'          => $release['html_url'] ?? '',
-                'download_url' => $release['zipball_url'] ?? '',
+                'download_url' => $download_url,
                 'body'         => self::parse_markdown($release['body'] ?? ''),
             ];
 
@@ -232,6 +233,38 @@ class GitHubUpdater {
         set_transient($cache_key, $result, 5 * MINUTE_IN_SECONDS);
 
         return $result;
+    }
+
+    /**
+     * Fixes the extracted folder name from GitHub zipballs.
+     *
+     * GitHub extracts to CODESM003-CODESM-Decoupled-Bundle-<hash>, but WordPress
+     * expects codesm-decoupled-bundle. Rename during extraction.
+     *
+     * @param string $source Path to extracted folder.
+     * @param string $remote_source Remote source path.
+     * @param object $upgrader Upgrader object.
+     * @param array  $hook_extra Extra hook data.
+     * @return string Corrected source path.
+     */
+    /**
+     * Finds the release asset download URL.
+     *
+     * @param array $release GitHub release data.
+     * @return string|null Download URL of the asset, or null if not found.
+     */
+    private static function get_release_asset_url(array $release): ?string {
+        if (!isset($release['assets']) || !is_array($release['assets'])) {
+            return null;
+        }
+
+        foreach ($release['assets'] as $asset) {
+            if (($asset['name'] ?? '') === 'codesm-decoupled-bundle.zip') {
+                return $asset['browser_download_url'] ?? null;
+            }
+        }
+
+        return null;
     }
 
     /**
