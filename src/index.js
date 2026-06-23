@@ -1121,7 +1121,14 @@ function App() {
                                         <TextControl
                                             label="Personal Access Token"
                                             value={tokenEditing ? tokenInput : (build.github_token ? '••••••••••••••••' : '')}
-                                            onChange={tokenEditing ? setTokenInput : () => {}}
+                                            onChange={(val) => {
+                                                if (tokenEditing) {
+                                                    setTokenInput(val);
+                                                } else if (!build.github_token) {
+                                                    setTokenEditing(true);
+                                                    setTokenInput(val);
+                                                }
+                                            }}
                                             onMouseDown={() => {
                                                 if (build.github_token && !tokenEditing) {
                                                     setShowTokenConfirm(true);
