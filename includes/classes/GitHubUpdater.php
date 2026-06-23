@@ -32,8 +32,15 @@ class GitHubUpdater {
      * @return mixed Modified transient with update info if available.
      */
     public static function check_for_updates($transient): mixed {
-        if (!isset($transient->checked) || !is_array($transient->checked)) {
-            return $transient;
+        if (!is_object($transient)) {
+            $transient = (object) ['checked' => [], 'response' => []];
+        }
+
+        if (!isset($transient->checked)) {
+            $transient->checked = [];
+        }
+        if (!isset($transient->response)) {
+            $transient->response = [];
         }
 
         $plugin_file = plugin_basename(CODESM_DECOUPLED_BUNDLE_DIRECTORY_PATH . 'codesm-decoupled-bundle.php');
@@ -48,6 +55,7 @@ class GitHubUpdater {
                 'new_version'  => $latest_release['version'],
                 'url'          => $latest_release['url'],
                 'package'      => $latest_release['download_url'],
+                'dir_name'     => 'codesm-decoupled-bundle',
                 'tested'       => '6.9',
                 'requires'     => '6.9',
                 'requires_php' => '8.0',
@@ -123,11 +131,17 @@ class GitHubUpdater {
             return null;
         }
 
+        $status = (int) wp_remote_retrieve_response_code($response);
+        if ($status !== 200) {
+            return null;
+        }
+
         $releases = json_decode(wp_remote_retrieve_body($response), true);
         if (!is_array($releases)) {
             return null;
         }
 
+        $latest = null;
         foreach ($releases as $release) {
             if (!isset($release['tag_name'])) continue;
             if (!$prerelease_enabled && $release['prerelease']) continue;
@@ -136,11 +150,17 @@ class GitHubUpdater {
                 'version'      => ltrim($release['tag_name'], 'v'),
                 'url'          => $release['html_url'] ?? '',
                 'download_url' => $release['zipball_url'] ?? '',
-                'body'         => $release['body'] ?? '',
+                'body'         => self::parse_markdown($release['body'] ?? ''),
             ];
 
-            set_transient($cache_key, $data, 12 * HOUR_IN_SECONDS);
-            return $data;
+            if (!$latest || version_compare($data['version'], $latest['version'], '>')) {
+                $latest = $data;
+            }
+        }
+
+        if ($latest) {
+            set_transient($cache_key, $latest, 5 * MINUTE_IN_SECONDS);
+            return $latest;
         }
 
         return null;
@@ -172,6 +192,13 @@ class GitHubUpdater {
             return $result;
         }
 
+        $status = (int) wp_remote_retrieve_response_code($response);
+        if ($status !== 200) {
+            $result = ['stable' => null, 'prerelease' => null, 'error' => "GitHub API error: HTTP $status"];
+            set_transient($cache_key, $result, 5 * MINUTE_IN_SECONDS);
+            return $result;
+        }
+
         $releases = json_decode(wp_remote_retrieve_body($response), true);
         if (!is_array($releases)) {
             $result = ['stable' => null, 'prerelease' => null, 'error' => 'Invalid response from GitHub.'];
@@ -189,7 +216,7 @@ class GitHubUpdater {
                 'version'      => ltrim($release['tag_name'], 'v'),
                 'url'          => $release['html_url'] ?? '',
                 'download_url' => $release['zipball_url'] ?? '',
-                'body'         => $release['body'] ?? '',
+                'body'         => self::parse_markdown($release['body'] ?? ''),
             ];
 
             if ($release['prerelease'] && !$prerelease) {
@@ -205,5 +232,23 @@ class GitHubUpdater {
         set_transient($cache_key, $result, 5 * MINUTE_IN_SECONDS);
 
         return $result;
+    }
+
+    /**
+     * Converts GitHub markdown to basic HTML for display.
+     *
+     * @param string $markdown Markdown text from GitHub release.
+     * @return string HTML-safe text.
+     */
+    private static function parse_markdown(string $markdown): string {
+        $html = wp_kses_post($markdown);
+        $html = preg_replace('/^### (.+)$/m', '<h4>$1</h4>', $html);
+        $html = preg_replace('/^## (.+)$/m', '<h3>$1</h3>', $html);
+        $html = preg_replace('/^\* (.+)$/m', '<li>$1</li>', $html);
+        $html = preg_replace('/<li>(.+?)<\/li>/s', '<ul><li>$1</li></ul>', $html);
+        $html = preg_replace('/<\/ul>\s*<ul>/', '', $html);
+        $html = preg_replace('/\*\*(.+?)\*\*/', '<strong>$1</strong>', $html);
+        $html = nl2br($html);
+        return $html;
     }
 }

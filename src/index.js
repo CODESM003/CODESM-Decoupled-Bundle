@@ -593,6 +593,9 @@ function App() {
 
     const switchTab = (id) => {
         setActiveTab(id);
+        setTokenEditing(false);
+        setTokenInput('');
+        setShowTokenConfirm(false);
         const url = new URL(window.location.href);
         url.searchParams.set('tab', id);
         window.history.replaceState(null, '', url);
@@ -616,6 +619,11 @@ function App() {
     const [latestPrerelease, setLatestPrerelease] = useState(null);
     const [updateChecking, setUpdateChecking]     = useState(false);
     const [updateError, setUpdateError]           = useState(null);
+
+    // Token management
+    const [tokenEditing, setTokenEditing]         = useState(false);
+    const [showTokenConfirm, setShowTokenConfirm] = useState(false);
+    const [tokenInput, setTokenInput]             = useState('');
 
     const showNotice = (status, message) => {
         setNotice({ status, message });
@@ -736,13 +744,22 @@ function App() {
         setIsSaving(true);
         try {
             let dataToSave = settings;
-            if (ghLoaded && workflows.length > 0) {
-                const validIds = new Set(workflows.map(wf => String(wf.id)));
+            if (tokenEditing && tokenInput) {
                 dataToSave = {
                     ...settings,
                     build: {
                         ...settings.build,
-                        auto_targets: (settings.build?.auto_targets || []).map(target => ({
+                        github_token: tokenInput,
+                    },
+                };
+            }
+            if (ghLoaded && workflows.length > 0) {
+                const validIds = new Set(workflows.map(wf => String(wf.id)));
+                dataToSave = {
+                    ...dataToSave,
+                    build: {
+                        ...dataToSave.build,
+                        auto_targets: (dataToSave.build?.auto_targets || []).map(target => ({
                             ...target,
                             workflows: (target.workflows || []).filter(id => validIds.has(id)),
                         })),
@@ -752,6 +769,8 @@ function App() {
             const result = await apiFetch({ url: `${restUrl}/settings`, method: 'POST', data: dataToSave });
             if (result.success) {
                 setSettings(result.settings);
+                setTokenEditing(false);
+                setTokenInput('');
                 showNotice('success', i18n?.settingsSaved || 'Settings saved.');
             }
         } catch (err) {
@@ -1091,14 +1110,50 @@ function App() {
                                     <div className="codesm-decoupled-bundle-field codesm-decoupled-bundle-field--grow">
                                         <TextControl
                                             label="Personal Access Token"
-                                            value={build.github_token || ''}
-                                            onChange={setBuild('github_token')}
+                                            value={tokenEditing ? tokenInput : (build.github_token ? '••••••••••••••••' : '')}
+                                            onChange={tokenEditing ? setTokenInput : () => {}}
+                                            onFocus={() => {
+                                                if (build.github_token && !tokenEditing) {
+                                                    setShowTokenConfirm(true);
+                                                }
+                                            }}
                                             type="password"
-                                            placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
-                                            help="Fine-grained: Actions (read/write) + Contents (read). Classic: repo scope."
+                                            readOnly={!tokenEditing}
+                                            placeholder={tokenEditing ? 'ghp_xxxxxxxxxxxxxxxxxxxx' : '••••••••••••••••'}
+                                            help={
+                                                tokenEditing
+                                                    ? 'Enter your new GitHub Personal Access Token (fine-grained or classic with repo scope).'
+                                                    : build.github_token
+                                                    ? (<><strong>Token is set.</strong> Click to change it.</>)
+                                                    : 'Fine-grained: Actions (read/write) + Contents (read). Classic: repo scope.'
+                                            }
                                             __nextHasNoMarginBottom
                                         />
                                     </div>
+
+                                    {showTokenConfirm && build.github_token && (
+                                        <Modal
+                                            title="Change GitHub Token?"
+                                            onRequestClose={() => setShowTokenConfirm(false)}
+                                            size="small"
+                                        >
+                                            <p>A GitHub Personal Access Token is already set. Do you want to replace it with a new one?</p>
+                                            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '16px' }}>
+                                                <Button variant="secondary" onClick={() => setShowTokenConfirm(false)}>
+                                                    Keep Current Token
+                                                </Button>
+                                                <Button
+                                                    variant="primary"
+                                                    onClick={() => {
+                                                        setShowTokenConfirm(false);
+                                                        setTokenEditing(true);
+                                                    }}
+                                                >
+                                                    Change Token
+                                                </Button>
+                                            </div>
+                                        </Modal>
+                                    )}
                                 </div>
                                 <div className="codesm-decoupled-bundle-creds-actions">
                                     <Button
