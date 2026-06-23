@@ -55,7 +55,7 @@ jobs:
 
       - name: Update PHP plugin file version header
         run: |
-          sed -i "s/ \* Version:     .*/\* Version:     ${{ steps.version.outputs.version }}/" codesm-decoupled-bundle.php
+          sed -i "s/\( \* Version:\).*/\1     ${{ steps.version.outputs.version }}/" codesm-decoupled-bundle.php
 
       - name: Update PHP plugin file version constant
         run: |
