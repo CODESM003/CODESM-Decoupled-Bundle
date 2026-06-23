@@ -1,6 +1,6 @@
 {
     "name": "codesm-decoupled-bundle",
-    "version": "0.0.1-prerelease-rc3",
+    "version": "0.0.1-prerelease-rc4",
     "description": "Site settings, contact info, GTM config, and Astro build triggers for decoupled WordPress + Astro setups.",
     "scripts": {
         "start": "wp-scripts start",
